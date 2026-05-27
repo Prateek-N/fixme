@@ -1,0 +1,5 @@
+/* App-level layout only — design system is in index.css */
+.app-root {
+  min-height: 100vh;
+  background: var(--paper);
+}

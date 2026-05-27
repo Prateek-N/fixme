@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>FixMyFinance — Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Caveat:wght@500;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<div class="app-shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">FixMyFinance</span>
+      <span class="brand-sub">— wireframes, v1</span>
+    </div>
+    <div class="topbar-meta">
+      <span>money-diagnosis tool · mobile-first · INR</span>
+      <span class="stamp">Lo-fi</span>
+    </div>
+  </header>
+
+  <!-- Viewport + Tabs -->
+  <div style="display:flex;align-items:center;gap:20px;margin-bottom:10px;flex-wrap:wrap;">
+    <div class="viewport-switch" id="vpSwitch">
+      <button data-vp="mobile" class="active">📱 Mobile</button>
+      <button data-vp="desktop">🖥 Desktop</button>
+    </div>
+    <div class="hand" style="font-size:15px;color:var(--muted)">Toggle to switch every screen at once.</div>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="landing"><span class="n">1</span>Landing</button>
+    <button class="tab" data-tab="upload"><span class="n">2</span>Upload</button>
+    <button class="tab" data-tab="processing"><span class="n">3</span>Processing</button>
+    <button class="tab" data-tab="txn"><span class="n">4</span>Transactions</button>
+    <button class="tab" data-tab="insights"><span class="n">5</span>Insights ★</button>
+    <button class="tab" data-tab="system"><span class="n">0</span>System Notes</button>
+  </nav>
+
+  <main id="stage"></main>
+</div>
+
+<button class="tweaks-toggle" id="tweaksToggle">✎ Tweaks</button>
+<div class="tweaks hidden" id="tweaksPanel">
+  <button class="close" id="tweaksClose">✕</button>
+  <h4>Tweaks</h4>
+
+  <div class="grp">
+    <label>Accent color</label>
+    <div class="swatches" id="accentSwatches">
+      <div class="sw active" data-accent="#2F2FE4" style="background:#2F2FE4" title="Electric blue (brief)"></div>
+      <div class="sw" data-accent="#162E93" style="background:#162E93" title="Deep indigo"></div>
+      <div class="sw" data-accent="#D1324B" style="background:#D1324B" title="Red"></div>
+      <div class="sw" data-accent="#2B9348" style="background:#2B9348" title="Green"></div>
+      <div class="sw" data-accent="#E8A54B" style="background:#E8A54B" title="Amber"></div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <label>Paper tone</label>
+    <div class="swatches" id="paperSwatches">
+      <div class="sw active" data-paper="#FBFAF5" style="background:#FBFAF5"></div>
+      <div class="sw" data-paper="#FFFFFF" style="background:#FFFFFF"></div>
+      <div class="sw" data-paper="#EFEEE6" style="background:#EFEEE6"></div>
+      <div class="sw" data-paper="#080616" data-dark="1" style="background:#080616"></div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <label>Persona tone</label>
+    <select id="personaTone">
+      <option value="playful">Playful — "The Foodie 🍜"</option>
+      <option value="gentle" selected>Gentle — "You love good food"</option>
+      <option value="blunt">Blunt — "Food is eating your salary"</option>
+    </select>
+  </div>
+
+  <div class="grp">
+    <label>Show annotations</label>
+    <select id="annotToggle">
+      <option value="on" selected>On — with callouts</option>
+      <option value="off">Off — clean wireframes</option>
+    </select>
+  </div>
+</div>
+
+<!-- Shared helpers -->
+<script type="text/babel" data-presets="react,env">
+// placeholder: we use vanilla for simplicity. Babel not required.
+</script>
+
+<!-- screens as plain HTML templates injected by app.js -->
+<script src="screens-bundle.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
