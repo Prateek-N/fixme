@@ -24,6 +24,15 @@ const sampleTransactions: Transaction[] = [
 
 const sampleInsightPayload: InsightPayload = {
   period: { month: 'April 2026', bankName: 'Sample Bank', txnCount: 34 },
+  parsingDiagnostics: {
+    pages: 2,
+    tablesDetected: 3,
+    tablesParsed: 2,
+    modeCounts: { Card: 18, Bank: 16, Text: 0 },
+    dedupeDropped: 1,
+    rejectedRows: { missing_date: 0, missing_amount: 2, non_positive_amount: 0 },
+    warnings: [],
+  },
   dataQuality: {
     statementType: 'bank_account',
     transactionCount: 34,

@@ -67,6 +67,50 @@ class DiagnosisTests(unittest.TestCase):
         if data["biggestLeak"] is not None:
             self.assertNotEqual(data["biggestLeak"]["category"], "Other")
 
+    def test_compute_insights_includes_parsing_diagnostics(self):
+        data = compute_insights([
+            txn("01 Apr 2026", "Salary", 90000, "credit", "Income"),
+            txn("02 Apr 2026", "Rent", 25000, "debit", "Bills"),
+            txn("03 Apr 2026", "Groceries", 6000, "debit", "Food"),
+            txn("04 Apr 2026", "Uber", 1200, "debit", "Transport"),
+        ])
+        self.assertIn("parsingDiagnostics", data)
+        self.assertIsInstance(data["parsingDiagnostics"], dict)
+
+    def test_desc_normalization_for_key_is_deterministic(self):
+        from main import normalize_desc_for_key
+        self.assertEqual(normalize_desc_for_key("  Swiggy--order   #123 "), "SWIGGY ORDER 123")
+        self.assertEqual(normalize_desc_for_key("SWIGGY ORDER 123"), "SWIGGY ORDER 123")
+
+    def test_dedupe_key_matches_for_cosmetic_desc_differences(self):
+        from main import transaction_dedupe_key
+        t1 = txn("01 Apr 2026", "Swiggy--order   #123", 499.00, "debit", "Food", mode="Text")
+        t2 = txn("01 Apr 2026", "SWIGGY ORDER 123", 499.00, "debit", "Food", mode="Text")
+        self.assertEqual(transaction_dedupe_key(t1), transaction_dedupe_key(t2))
+
+    def test_dedupe_key_differs_for_distinct_merchants_same_amount(self):
+        from main import transaction_dedupe_key
+        t1 = txn("01 Apr 2026", "Swiggy order 123", 499.00, "debit", "Food", mode="Text")
+        t2 = txn("01 Apr 2026", "Zomato order 456", 499.00, "debit", "Food", mode="Text")
+        self.assertNotEqual(transaction_dedupe_key(t1), transaction_dedupe_key(t2))
+
+    def test_confidence_downgrades_from_diagnostics_signals(self):
+        transactions = [
+            txn("01 Apr 2026", f"Purchase {i}", 100 + i, "debit", "Shopping", mode="Text")
+            for i in range(20)
+        ]
+        diagnostics = {
+            "pages": 2,
+            "tablesDetected": 0,
+            "tablesParsed": 0,
+            "modeCounts": {"Text": 20, "Card": 0, "Bank": 0},
+            "dedupeDropped": 8,
+            "rejectedRows": {"missing_date": 0, "missing_amount": 5, "non_positive_amount": 0},
+            "warnings": ["Text fallback was used."],
+        }
+        data = compute_insights(transactions, parsing_diagnostics=diagnostics)
+        self.assertEqual(data["dataQuality"]["parsingConfidence"], "low")
+
 
 if __name__ == "__main__":
     unittest.main()

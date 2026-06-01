@@ -1,0 +1,6 @@
+{"type":"click","text":"E\n    \n      Dashboard & history\n      Month comparisons, trends, goal tracking, “open previous” flows, cleanup tools.","choice":"history-dashboard","id":null,"timestamp":1779894719398}
+{"type":"click","text":"C\n    \n      Transactions review workflow\n      Filtering by insight, bulk actions, undo, better “transfer vs expense” handling, save/correct flows.","choice":"review-workflow","id":null,"timestamp":1779894748252}
+{"type":"click","text":"A\n    \n      Parsing accuracy\n      Support more statement formats, reduce missed/duplicate transactions, better date/amount detection.","choice":"parsing-accuracy","id":null,"timestamp":1779894749210}
+{"type":"click","text":"D\n    \n      Insights quality\n      Better scoring drivers, clearer “why”, more actionable next steps, fewer assumptions.","choice":"insights-quality","id":null,"timestamp":1779902224598}
+{"type":"click","text":"C\n    \n      Transactions review workflow\n      Filtering by insight, bulk actions, undo, better “transfer vs expense” handling, save/correct flows.","choice":"review-workflow","id":null,"timestamp":1779902234423}
+{"type":"click","text":"A\n    \n      Parsing accuracy\n      Support more statement formats, reduce missed/duplicate transactions, better date/amount detection.","choice":"parsing-accuracy","id":null,"timestamp":1779902234865}

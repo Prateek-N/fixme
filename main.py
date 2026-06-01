@@ -4,24 +4,38 @@ import asyncio
 import json
 import pandas as pd
 import pdfplumber
-from fastapi import FastAPI, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 from datetime import datetime
 
-app = FastAPI(title="FixMyFinance API")
+try:
+    from fastapi import FastAPI, UploadFile, File
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import StreamingResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    import uvicorn
+except Exception:
+    FastAPI = None
+    UploadFile = None
+    File = None
+    StaticFiles = None
+    StreamingResponse = None
+    CORSMiddleware = None
+    uvicorn = None
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+try:
+    app = FastAPI(title="FixMyFinance API") if FastAPI is not None else None
+except Exception:
+    app = None
 
-app.mount("/app", StaticFiles(directory="public", html=True), name="public")
+if app is not None and CORSMiddleware is not None and StaticFiles is not None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.mount("/app", StaticFiles(directory="public", html=True), name="public")
 
 # ─────────────────────────────────────────────
 # CATEGORIZATION ENGINE
@@ -129,6 +143,46 @@ def extract_merchant_key(desc: str) -> str:
     return significant[0] if significant else desc_up[:15]
 
 
+def normalize_desc_for_key(desc: str) -> str:
+    desc_up = str(desc or "").upper()
+    desc_up = re.sub(r"[^A-Z0-9]+", " ", desc_up)
+    desc_up = re.sub(r"\s+", " ", desc_up).strip()
+    return desc_up
+
+
+def transaction_dedupe_key(txn: dict) -> str:
+    date = str(txn.get("date") or "").strip()
+    txn_type = str(txn.get("type") or "").strip()
+    amount = round(float(txn.get("amount") or 0.0), 2)
+    desc = str(txn.get("desc") or "")
+    merchant_key = extract_merchant_key(desc).upper()
+    desc_norm = normalize_desc_for_key(desc)
+    desc_norm_prefix = desc_norm[:20]
+    return f"{date}|{txn_type}|{amount:.2f}|{merchant_key}|{desc_norm_prefix}"
+
+
+def _ensure_parsing_diagnostics(diagnostics: dict | None) -> dict | None:
+    if diagnostics is None:
+        return None
+    diagnostics.setdefault("pages", 0)
+    diagnostics.setdefault("tablesDetected", 0)
+    diagnostics.setdefault("tablesParsed", 0)
+    diagnostics.setdefault("modeCounts", {"Card": 0, "Bank": 0, "Text": 0})
+    diagnostics.setdefault("dedupeDropped", 0)
+    diagnostics.setdefault("rejectedRows", {"missing_date": 0, "missing_amount": 0, "non_positive_amount": 0})
+    diagnostics.setdefault("warnings", [])
+    return diagnostics
+
+
+def _diag_inc_rejected(diagnostics: dict | None, reason: str) -> None:
+    diagnostics = _ensure_parsing_diagnostics(diagnostics)
+    if diagnostics is None:
+        return
+    rejected = diagnostics.get("rejectedRows")
+    if isinstance(rejected, dict) and reason in rejected:
+        rejected[reason] = int(rejected.get(reason, 0)) + 1
+
+
 def categorize(desc: str, merchant_category: str = "") -> str:
     mc = merchant_category.strip().upper()
     desc_up = normalize_merchant(desc).upper()
@@ -194,7 +248,7 @@ def normalize_date(d: str) -> str:
 # PDF PARSERS
 # ─────────────────────────────────────────────
 
-def parse_credit_card_table(table: list) -> list[dict]:
+def parse_credit_card_table(table: list, diagnostics: dict | None = None) -> list[dict]:
     """
     Handles: DATE | TRANSACTION DETAILS | MERCHANT CATEGORY | AMOUNT (Rs.)
     This is the Axis Bank / HDFC CC format.
@@ -215,6 +269,7 @@ def parse_credit_card_table(table: list) -> list[dict]:
             continue
         date_cell = str(row[date_idx] or "").strip()
         if not is_date(date_cell):
+            _diag_inc_rejected(diagnostics, "missing_date")
             continue
         desc = str(row[desc_idx] or "").replace("\n", " ").strip()
         if not desc or len(desc) < 2:
@@ -222,10 +277,12 @@ def parse_credit_card_table(table: list) -> list[dict]:
         mc = str(row[cat_idx] or "").strip() if cat_idx != -1 else ""
         amt_raw = str(row[amt_idx] or "").strip()
         if not amt_raw:
+            _diag_inc_rejected(diagnostics, "missing_amount")
             continue
 
         amount = clean_amount(amt_raw)
         if amount <= 0:
+            _diag_inc_rejected(diagnostics, "non_positive_amount")
             continue
 
         is_income = is_credit_amount(amt_raw)
@@ -238,13 +295,13 @@ def parse_credit_card_table(table: list) -> list[dict]:
             "amount": round(amount, 2),
             "type": txn_type,
             "category": category,
-            "mode": mc or "Card",
+            "mode": "Card",
         })
 
     return transactions
 
 
-def parse_savings_bank_table(table: list) -> list[dict]:
+def parse_savings_bank_table(table: list, diagnostics: dict | None = None) -> list[dict]:
     """
     Handles: DATE | NARRATION | DEBIT | CREDIT | BALANCE
     Standard savings/current account format.
@@ -267,6 +324,7 @@ def parse_savings_bank_table(table: list) -> list[dict]:
             continue
         date_cell = str(row[date_idx] if date_idx < len(row) else "").strip()
         if not is_date(date_cell):
+            _diag_inc_rejected(diagnostics, "missing_date")
             continue
         desc = str(row[desc_idx] if desc_idx < len(row) else "").replace("\n", " ").strip()
         if not desc or len(desc) < 2:
@@ -294,11 +352,13 @@ def parse_savings_bank_table(table: list) -> list[dict]:
                 "category": category,
                 "mode": "Bank",
             })
+        else:
+            _diag_inc_rejected(diagnostics, "missing_amount")
 
     return transactions
 
 
-def detect_and_parse_table(table: list) -> list[dict]:
+def detect_and_parse_table(table: list, diagnostics: dict | None = None) -> list[dict]:
     """Auto-detect table format and route to the right parser."""
     if not table or len(table) < 2:
         return []
@@ -308,31 +368,40 @@ def detect_and_parse_table(table: list) -> list[dict]:
     if ("AMOUNT" in header_str or "RS." in header_str) and (
         "DEBIT" not in header_str and "CREDIT" not in header_str
     ):
-        result = parse_credit_card_table(table)
+        result = parse_credit_card_table(table, diagnostics=diagnostics)
         if result:
             return result
 
-    result = parse_savings_bank_table(table)
+    result = parse_savings_bank_table(table, diagnostics=diagnostics)
     if result:
         return result
 
     return []
 
 
-def extract_transactions_from_pdf(content: bytes) -> list[dict]:
+def extract_transactions_from_pdf(content: bytes, diagnostics: dict | None = None) -> list[dict]:
     transactions = []
     seen = set()
+    diagnostics = _ensure_parsing_diagnostics(diagnostics)
+    text_fallback_pages = 0
 
     with pdfplumber.open(io.BytesIO(content)) as pdf:
+        if diagnostics is not None:
+            diagnostics["pages"] = len(pdf.pages)
         for page in pdf.pages:
             tables = page.extract_tables()
+            if diagnostics is not None:
+                diagnostics["tablesDetected"] = int(diagnostics.get("tablesDetected", 0)) + len(tables)
             found_on_page = []
 
             for table in tables:
-                parsed = detect_and_parse_table(table)
+                parsed = detect_and_parse_table(table, diagnostics=diagnostics)
                 found_on_page.extend(parsed)
+                if diagnostics is not None and parsed:
+                    diagnostics["tablesParsed"] = int(diagnostics.get("tablesParsed", 0)) + 1
 
             if not found_on_page:
+                text_fallback_pages += 1
                 text = page.extract_text() or ""
                 lines = text.split("\n")
                 tx_re = re.compile(
@@ -346,6 +415,9 @@ def extract_transactions_from_pdf(content: bytes) -> list[dict]:
                     if len(desc) < 3:
                         continue
                     amount = clean_amount(amt_str)
+                    if amount <= 0:
+                        _diag_inc_rejected(diagnostics, "non_positive_amount")
+                        continue
                     is_income = ("CR" in line.upper() or "SALARY" in desc.upper())
                     found_on_page.append({
                         "date": normalize_date(date_str),
@@ -357,10 +429,23 @@ def extract_transactions_from_pdf(content: bytes) -> list[dict]:
                     })
 
             for txn in found_on_page:
-                key = (txn["date"], txn["desc"], txn["amount"])
+                if diagnostics is not None:
+                    mode_counts = diagnostics.get("modeCounts")
+                    if isinstance(mode_counts, dict):
+                        mode = txn.get("mode", "Text")
+                        mode_counts[mode] = int(mode_counts.get(mode, 0)) + 1
+
+                key = transaction_dedupe_key(txn)
                 if key not in seen:
                     seen.add(key)
                     transactions.append(txn)
+                elif diagnostics is not None:
+                    diagnostics["dedupeDropped"] = int(diagnostics.get("dedupeDropped", 0)) + 1
+
+        if diagnostics is not None and text_fallback_pages > 0:
+            warnings = diagnostics.get("warnings")
+            if isinstance(warnings, list):
+                warnings.append(f"Text fallback was used on {text_fallback_pages} page(s) (no tables parsed).")
 
     return transactions
 
@@ -808,9 +893,10 @@ def infer_statement_type(income_df: pd.DataFrame, expense_df: pd.DataFrame) -> s
     return "mixed"
 
 
-def build_empty_diagnosis_payload(transaction_count: int = 0) -> dict:
+def build_empty_diagnosis_payload(transaction_count: int = 0, parsing_diagnostics: dict | None = None) -> dict:
     return {
         "period": {"month": "Detected", "bankName": "Statement", "txnCount": transaction_count},
+        "parsingDiagnostics": parsing_diagnostics or {},
         "dataQuality": {
             "statementType": "unknown",
             "transactionCount": transaction_count,
@@ -943,16 +1029,50 @@ def derive_period_label(transactions: list[dict]) -> str:
     return f"{first.strftime('%b %Y')}–{last.strftime('%b %Y')}"
 
 
-def compute_insights(transactions: list[dict]) -> dict:
+def _min_confidence(a: str, b: str) -> str:
+    rank = {"low": 0, "medium": 1, "high": 2}
+    if rank.get(b, 0) < rank.get(a, 0):
+        return b
+    return a
+
+
+def _compute_parsing_confidence(
+    transaction_count: int,
+    inferred_income: bool,
+    parsing_diagnostics: dict | None,
+) -> str:
+    base = "low" if transaction_count < 4 else ("medium" if transaction_count < 15 or inferred_income else "high")
+    if not parsing_diagnostics or transaction_count <= 0:
+        return base
+
+    mode_counts = parsing_diagnostics.get("modeCounts") if isinstance(parsing_diagnostics, dict) else None
+    text_count = int(mode_counts.get("Text", 0)) if isinstance(mode_counts, dict) else 0
+    dedupe_dropped = int(parsing_diagnostics.get("dedupeDropped", 0)) if isinstance(parsing_diagnostics, dict) else 0
+    rejected_rows = parsing_diagnostics.get("rejectedRows") if isinstance(parsing_diagnostics, dict) else None
+    rejected_total = sum(int(v) for v in rejected_rows.values()) if isinstance(rejected_rows, dict) else 0
+
+    if rejected_total / transaction_count >= 0.25:
+        base = _min_confidence(base, "low")
+    if dedupe_dropped / transaction_count >= 0.25:
+        base = _min_confidence(base, "low")
+    if text_count / transaction_count >= 0.6:
+        base = _min_confidence(base, "medium")
+    if text_count / transaction_count >= 0.85:
+        base = _min_confidence(base, "low")
+
+    return base
+
+
+def compute_insights(transactions: list[dict], parsing_diagnostics: dict | None = None) -> dict:
     if not transactions:
-        return build_empty_diagnosis_payload(0)
+        return build_empty_diagnosis_payload(0, parsing_diagnostics=parsing_diagnostics)
 
     df = pd.DataFrame(transactions)
     expense_df = df[df["type"] == "debit"].copy()
     income_df = df[df["type"] == "credit"]
 
     if len(transactions) < 4:
-        return build_empty_diagnosis_payload(len(transactions))
+        return build_empty_diagnosis_payload(len(transactions), parsing_diagnostics=parsing_diagnostics)
 
     total_income = float(income_df["amount"].sum()) if not income_df.empty else 0.0
     total_expense = float(expense_df["amount"].sum()) if not expense_df.empty else 0.0
@@ -1020,7 +1140,7 @@ def compute_insights(transactions: list[dict]) -> dict:
         savings_rate, breakdown, biggest_leak, subscriptions, behavior_insights
     )
 
-    parsing_confidence = "low" if len(transactions) < 4 else ("medium" if len(transactions) < 15 or inferred_income else "high")
+    parsing_confidence = _compute_parsing_confidence(len(transactions), inferred_income, parsing_diagnostics)
     score_confidence = "low" if inferred_income or parsing_confidence == "low" else ("medium" if parsing_confidence == "medium" else "high")
 
     score_reasons = [driver["evidence"] for driver in drivers[:3]]
@@ -1072,6 +1192,7 @@ def compute_insights(transactions: list[dict]) -> dict:
 
     return {
         "period": {"month": derive_period_label(transactions), "bankName": "Statement", "txnCount": len(transactions)},
+        "parsingDiagnostics": parsing_diagnostics or {},
         "dataQuality": {
             "statementType": statement_type,
             "transactionCount": len(transactions),
@@ -1107,71 +1228,72 @@ def compute_insights(transactions: list[dict]) -> dict:
     }
 
 
-@app.post("/api/parse")
-async def parse_statement(file: UploadFile = File(...)):
-    content = await file.read()
+if app is not None and StreamingResponse is not None and File is not None:
+    @app.post("/api/parse")
+    async def parse_statement(file: UploadFile = File(...)):
+        content = await file.read()
 
-    async def generate():
-        def sse(data): return f"data: {json.dumps(data)}\n\n"
+        async def generate():
+            def sse(data): return f"data: {json.dumps(data)}\n\n"
 
-        yield sse({"type": "progress", "pct": 10, "message": "Reading your statement…"})
-        await asyncio.sleep(0.6)
+            yield sse({"type": "progress", "pct": 10, "message": "Reading your statement…"})
+            await asyncio.sleep(0.6)
 
-        yield sse({"type": "progress", "pct": 30, "message": "Detecting format…"})
-        await asyncio.sleep(0.4)
+            yield sse({"type": "progress", "pct": 30, "message": "Detecting format…"})
+            await asyncio.sleep(0.4)
 
-        try:
-            transactions = extract_transactions_from_pdf(content)
-        except Exception as e:
-            yield sse({"type": "error", "error": f"Could not read PDF: {e}"})
-            return
+            diagnostics: dict = {}
+            try:
+                transactions = extract_transactions_from_pdf(content, diagnostics=diagnostics)
+            except Exception as e:
+                yield sse({"type": "error", "error": f"Could not read PDF: {e}"})
+                return
 
-        yield sse({"type": "progress", "pct": 55, "message": f"Found {len(transactions)} transactions"})
-        await asyncio.sleep(0.5)
-        if len(transactions) == 0:
-            yield sse({"type": "insight", "icon": "!", "text": "We could not extract enough reliable transactions to score this statement."})
+            yield sse({"type": "progress", "pct": 55, "message": f"Found {len(transactions)} transactions"})
             await asyncio.sleep(0.5)
-            yield sse({"type": "done", "data": build_empty_diagnosis_payload(0), "transactions": []})
-            return
+            if len(transactions) == 0:
+                yield sse({"type": "insight", "icon": "!", "text": "We could not extract enough reliable transactions to score this statement."})
+                await asyncio.sleep(0.5)
+                yield sse({"type": "done", "data": build_empty_diagnosis_payload(0, parsing_diagnostics=diagnostics), "transactions": []})
+                return
 
-        # Stream live category counts while the user waits
-        cats: dict[str, int] = {}
-        for t in transactions:
-            cats[t["category"]] = cats.get(t["category"], 0) + 1
+            cats: dict[str, int] = {}
+            for t in transactions:
+                cats[t["category"]] = cats.get(t["category"], 0) + 1
 
-        for cat, count in sorted(cats.items(), key=lambda x: x[1], reverse=True)[:3]:
-            yield sse({"type": "insight", "icon": "🔍", "text": f"{count} {cat} transactions"})
-            await asyncio.sleep(0.7)
+            for cat, count in sorted(cats.items(), key=lambda x: x[1], reverse=True)[:3]:
+                yield sse({"type": "insight", "icon": "🔍", "text": f"{count} {cat} transactions"})
+                await asyncio.sleep(0.7)
 
-        yield sse({"type": "progress", "pct": 80, "message": "Building a trustworthy health check..."})
-        await asyncio.sleep(0.5)
+            yield sse({"type": "progress", "pct": 80, "message": "Building a trustworthy health check..."})
+            await asyncio.sleep(0.5)
 
-        data = compute_insights(transactions)
+            data = compute_insights(transactions, parsing_diagnostics=diagnostics)
 
-        fname = file.filename or ""
-        if "axis" in fname.lower():
-            data["period"]["bankName"] = "Axis Bank"
-        elif "hdfc" in fname.lower():
-            data["period"]["bankName"] = "HDFC"
-        elif "sbi" in fname.lower():
-            data["period"]["bankName"] = "SBI"
+            fname = file.filename or ""
+            if "axis" in fname.lower():
+                data["period"]["bankName"] = "Axis Bank"
+            elif "hdfc" in fname.lower():
+                data["period"]["bankName"] = "HDFC"
+            elif "sbi" in fname.lower():
+                data["period"]["bankName"] = "SBI"
 
-        if data.get("dataQuality", {}).get("inferredIncome"):
-            yield sse({"type": "insight", "icon": "i", "text": "Income was estimated because this looks like an expense-only statement."})
+            if data.get("dataQuality", {}).get("inferredIncome"):
+                yield sse({"type": "insight", "icon": "i", "text": "Income was estimated because this looks like an expense-only statement."})
+                await asyncio.sleep(0.3)
+
+            yield sse({"type": "progress", "pct": 100, "message": "Done!"})
             await asyncio.sleep(0.3)
 
-        yield sse({"type": "progress", "pct": 100, "message": "Done!"})
-        await asyncio.sleep(0.3)
+            yield sse({"type": "done", "data": data, "transactions": transactions})
 
-        yield sse({"type": "done", "data": data, "transactions": transactions})
-
-    return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@app.post("/api/recompute")
-async def recompute_statement(payload: dict):
-    transactions = payload.get("transactions", [])
-    return compute_insights(transactions)
+    @app.post("/api/recompute")
+    async def recompute_statement(payload: dict):
+        transactions = payload.get("transactions", [])
+        return compute_insights(transactions)
 
 
 # ─────────────────────────────────────────────
@@ -1225,4 +1347,5 @@ def get_mock_payload():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    if uvicorn is not None:
+        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

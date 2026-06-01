@@ -22,6 +22,7 @@ export function Transactions() {
   } = useAppStore();
   const [activeFilter, setActiveFilter] = useState('All');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const visible = rawTransactions.filter(t => !t.ignored);
@@ -62,6 +63,7 @@ export function Transactions() {
 
   const handleRecompute = async () => {
     setIsSaving(true);
+    setSaveError(null);
     const activeTransactions = rawTransactions.filter(t => !t.ignored);
 
     try {
@@ -70,10 +72,22 @@ export function Transactions() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transactions: activeTransactions }),
       });
+      if (!response.ok) {
+        let details = '';
+        try {
+          details = (await response.text()).trim();
+        } catch {
+          details = '';
+        }
+        throw new Error(details || `Recompute failed (${response.status})`);
+      }
       const data = await response.json();
       setParsedData(data);
       syncCurrentStatement(data, rawTransactions);
       setScreen('insights');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to refresh the diagnosis.';
+      setSaveError(message);
     } finally {
       setIsSaving(false);
     }
@@ -108,6 +122,13 @@ export function Transactions() {
             </button>
           </div>
         </div>
+
+        {saveError && (
+          <Card variant="alert" style={{ padding: 12, marginBottom: 12 }}>
+            <div className="h3" style={{ fontSize: 10, color: 'var(--risk)', marginBottom: 6 }}>Could not refresh diagnosis</div>
+            <div className="sub" style={{ fontSize: 12, color: 'var(--ink)' }}>{saveError}</div>
+          </Card>
+        )}
 
         <Card style={{ padding: 12, marginBottom: 12 }}>
           <div className="row wrap" style={{ gap: 12 }}>
@@ -151,7 +172,7 @@ export function Transactions() {
                   />
                   {t.type !== 'credit' && (
                     <div className="row wrap" style={{ gap: 6, margin: '0 0 10px 0' }}>
-                      <button className="btn sm ghost" onClick={() => updateTransaction(index, { ignored: !t.ignored, category: t.ignored ? t.category : 'Transfer' })}>
+                      <button className="btn sm ghost" onClick={() => updateTransaction(index, { ignored: !t.ignored })}>
                         {t.ignored ? 'Restore' : 'Ignore / transfer'}
                       </button>
                       <button className="btn sm ghost" onClick={() => updateTransaction(index, { isRecurring: !t.isRecurring })}>

@@ -44,6 +44,19 @@ export interface BehaviorInsight {
 
 export interface InsightPayload {
     period: { month: string, bankName: string, txnCount: number };
+    parsingDiagnostics?: {
+        pages?: number;
+        tablesDetected?: number;
+        tablesParsed?: number;
+        modeCounts?: Record<string, number>;
+        dedupeDropped?: number;
+        rejectedRows?: {
+            missing_date?: number;
+            missing_amount?: number;
+            non_positive_amount?: number;
+        };
+        warnings?: string[];
+    };
     dataQuality: {
         statementType: 'bank_account' | 'credit_card' | 'mixed' | 'unknown';
         transactionCount: number;
@@ -399,6 +412,150 @@ export function computeWhatIfSavings(data: InsightPayload | null, reductions: Wh
         (subsAmount * reductions.subs / 100)
     );
     return { monthly, yearly: monthly * 12 };
+}
+
+export interface SimulatedInsights {
+    expenses: number;
+    saved: number;
+    savingsRate: number;
+    score: number;
+    scoreStatus: 'healthy' | 'needs_work' | 'critical';
+    emergencyMonths: number | null;
+    emergencyMonthlyContribNeeded: number | null;
+    breakdown: { category: string, amount: number, pct: number }[];
+    biggestLeak: { category: string, amount: number, yourPct: number, healthyPct: number, potentialSave: number } | null;
+}
+
+export function computeSimulatedInsights(data: InsightPayload | null, reductions: WhatIfReductions): SimulatedInsights {
+    if (!data) {
+        return {
+            expenses: 0,
+            saved: 0,
+            savingsRate: 0,
+            score: 0,
+            scoreStatus: 'needs_work',
+            emergencyMonths: null,
+            emergencyMonthlyContribNeeded: null,
+            breakdown: [],
+            biggestLeak: null,
+        };
+    }
+
+    const foodBreakdown = data.breakdown.find(b => b.category.toLowerCase().includes('food'));
+    const shopBreakdown = data.breakdown.find(b => b.category.toLowerCase().includes('shop'));
+    const foodSpend = foodBreakdown?.amount || 0;
+    const shopSpend = shopBreakdown?.amount || 0;
+    const subsSpend = data.subscriptions.reduce((sum, s) => sum + s.amount, 0);
+
+    const foodCut = Math.round(foodSpend * reductions.food / 100);
+    const shopCut = Math.round(shopSpend * reductions.shopping / 100);
+    const subsCut = Math.round(subsSpend * reductions.subs / 100);
+    const totalCut = foodCut + shopCut + subsCut;
+
+    const expenses = Math.max(0, data.metrics.expenses - totalCut);
+    const saved = data.metrics.income - expenses;
+    const savingsRate = data.metrics.income > 0 ? Math.min(100, Math.max(0, Math.round((saved / data.metrics.income) * 100))) : 0;
+
+    const breakdown = data.breakdown.map(b => {
+        let amt = b.amount;
+        if (b.category.toLowerCase().includes('food')) {
+            amt = Math.max(0, b.amount - foodCut);
+        } else if (b.category.toLowerCase().includes('shop')) {
+            amt = Math.max(0, b.amount - shopCut);
+        } else if (b.category.toLowerCase().includes('ent')) {
+            amt = Math.max(0, b.amount - subsCut);
+        }
+        return {
+            category: b.category,
+            amount: amt,
+            pct: expenses > 0 ? Math.round((amt / expenses) * 100) : 0,
+        };
+    });
+
+    const healthyPct: Record<string, number> = { Food: 20, Shopping: 15, Transport: 10, Entertainment: 5, Education: 5 };
+    const leakCandidates: any[] = [];
+    breakdown.forEach(b => {
+        const healthy = healthyPct[b.category];
+        if (healthy === undefined) return;
+        const potential = b.amount - (expenses * healthy / 100);
+        if (b.pct > healthy && potential > 0) {
+            leakCandidates.push({
+                category: b.category,
+                amount: b.amount,
+                yourPct: b.pct,
+                healthyPct: healthy,
+                potentialSave: Math.round(potential),
+            });
+        }
+    });
+    const biggestLeak = leakCandidates.length > 0
+        ? [...leakCandidates].sort((a, b) => b.potentialSave - a.potentialSave || b.yourPct - a.yourPct)[0]
+        : null;
+
+    let score = 58;
+
+    if (savingsRate >= 25) {
+        const boost = Math.min(18, Math.round(savingsRate * 0.45));
+        score += boost;
+    } else {
+        const drag = Math.min(22, Math.round(Math.max(0, 20 - savingsRate) * 1.1));
+        score -= drag;
+    }
+
+    if (biggestLeak && biggestLeak.potentialSave > 0) {
+        const overage = Math.max(0, biggestLeak.yourPct - biggestLeak.healthyPct);
+        const drag = Math.min(18, Math.round(overage * 1.1));
+        score -= drag;
+    }
+
+    const activeSubsCount = reductions.subs >= 100 ? 0 : data.subscriptions.length;
+    const simulatedSubsSpend = Math.max(0, subsSpend - subsCut);
+    if (activeSubsCount >= 3 || simulatedSubsSpend >= 2500) {
+        const drag = Math.min(12, 4 + activeSubsCount);
+        score -= drag;
+    }
+
+    const spikeCount = data.behaviorInsights.filter(i => i.type === 'spike').length;
+    if (spikeCount > 0) {
+        const drag = Math.min(14, spikeCount * 7);
+        score -= drag;
+    }
+
+    const recurringBehaviorCount = data.behaviorInsights.filter(i => i.type === 'behavior').length;
+    if (recurringBehaviorCount > 0) {
+        const drag = Math.min(10, recurringBehaviorCount * 3);
+        score -= drag;
+    }
+
+    if (breakdown.length > 0) {
+        const top = breakdown[0];
+        if (!["Other", "Income", "Bills"].includes(top.category) && top.pct > 40) {
+            score -= 8;
+        }
+    }
+
+    score = Math.max(10, Math.min(95, score));
+    const scoreStatus = score >= 75 ? 'healthy' : (score >= 45 ? 'needs_work' : 'critical');
+
+    let emergencyMonths: number | null = null;
+    let emergencyMonthlyContribNeeded: number | null = null;
+
+    if (!data.dataQuality.inferredIncome && data.metrics.income > 0) {
+        emergencyMonths = expenses > 0 ? Math.min(24.0, Number((saved / expenses).toFixed(1))) : 24.0;
+        emergencyMonthlyContribNeeded = Math.max(0, Math.round((3 - emergencyMonths) * expenses / 12));
+    }
+
+    return {
+        expenses,
+        saved,
+        savingsRate,
+        score,
+        scoreStatus,
+        emergencyMonths,
+        emergencyMonthlyContribNeeded,
+        breakdown,
+        biggestLeak,
+    };
 }
 
 export function getPreviousStatement(history: StatementRecord[], currentStatementId: string | null): StatementRecord | null {

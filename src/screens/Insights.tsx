@@ -1,4 +1,4 @@
-import { useAppStore, computeWhatIfSavings, getPreviousStatement } from '../store/useAppStore';
+import { useAppStore, computeWhatIfSavings, computeSimulatedInsights, getPreviousStatement } from '../store/useAppStore';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { StatusPill } from '../components/StatusPill';
@@ -85,6 +85,7 @@ export function Insights() {
 
   const {
     period,
+    parsingDiagnostics,
     dataQuality,
     score,
     diagnosis,
@@ -99,17 +100,29 @@ export function Insights() {
     persona,
   } = parsedData;
 
+  const isAnySliderActive = whatIfReductions.food > 0 || whatIfReductions.shopping > 0 || whatIfReductions.subs > 0;
+  const simulated = computeSimulatedInsights(parsedData, whatIfReductions);
+
   const { status, label } = getStatusLabel(score.status);
   const confidenceBadge = getConfidenceBadge(score.confidence);
   const savings = computeWhatIfSavings(parsedData, whatIfReductions);
   const personaCopy = PERSONA_COPY[personaTone] || PERSONA_COPY.gentle;
   const previous = getPreviousStatement(statementHistory, currentStatementId);
-  const donutSegments = breakdown.map(b => ({
+
+  const activeBreakdown = isAnySliderActive ? simulated.breakdown : breakdown;
+  const donutSegments = activeBreakdown.map(b => ({
     category: b.category,
     pct: b.pct,
     color: getCatColor(b.category),
   }));
+
   const monthlySubscriptionTotal = subscriptions.reduce((sum, sub) => sum + sub.amount, 0);
+  const simulatedSubsTotal = Math.max(0, monthlySubscriptionTotal - Math.round(monthlySubscriptionTotal * whatIfReductions.subs / 100));
+
+  const showDiagnostics = dataQuality.parsingConfidence !== 'high' || (parsingDiagnostics?.warnings?.length ?? 0) > 0;
+  const modeCounts = parsingDiagnostics?.modeCounts || {};
+  const rejectedRows = parsingDiagnostics?.rejectedRows || {};
+  const warnings = parsingDiagnostics?.warnings || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -172,19 +185,37 @@ export function Insights() {
             <Card variant="hero-ink" style={{ padding: 16, marginBottom: 10 }}>
               <div className="row between" style={{ alignItems: 'flex-start' }}>
                 <div>
-                  <div className="h3" style={{ color: 'var(--blue-soft)', fontSize: 10, marginBottom: 6 }}>How reliable this diagnosis is</div>
+                  <div className="h3" style={{ color: 'var(--blue-soft)', fontSize: 10, marginBottom: 6 }}>
+                    {isAnySliderActive ? 'Projected Money Health Score' : 'How reliable this diagnosis is'}
+                  </div>
                   <div className="row" style={{ alignItems: 'baseline', gap: 6 }}>
-                    <span className="big-num" style={{ fontSize: 56, color: '#fff' }}>{score.value}</span>
+                    <span className="big-num" style={{ fontSize: 56, color: '#fff' }}>
+                      {isAnySliderActive ? simulated.score : score.value}
+                    </span>
                     <span style={{ color: '#C8C4F0' }}>/100</span>
+                    {isAnySliderActive && (
+                      <span className="pill ok" style={{ fontSize: 11, marginLeft: 8, background: 'rgba(43,147,72,0.25)', borderColor: '#2B9348', color: '#fff' }}>
+                        Projected (was {score.value})
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="col" style={{ gap: 8, alignItems: 'flex-end' }}>
-                  <StatusPill status={status} label={label} />
+                  <StatusPill
+                    status={isAnySliderActive ? getStatusLabel(simulated.scoreStatus).status : status}
+                    label={isAnySliderActive ? `${getStatusLabel(simulated.scoreStatus).label} (Proj)` : label}
+                  />
                   <StatusPill status={confidenceBadge.status} label={confidenceBadge.label} />
                 </div>
               </div>
               <div className="hand" style={{ fontSize: 14, lineHeight: 1.35, color: '#E8E8FF', marginTop: 8 }}>
-                {score.reason}
+                {isAnySliderActive ? (
+                  <span>
+                    Simulated budget improvements would raise your savings rate to <b>{simulated.savingsRate}%</b> and trim critical category leaks.
+                  </span>
+                ) : (
+                  score.reason
+                )}
               </div>
               <div className="row wrap" style={{ gap: 8, marginTop: 12 }}>
                 {drivers.slice(0, 3).map((driver, index) => (
@@ -195,18 +226,75 @@ export function Insights() {
               </div>
             </Card>
 
+            {showDiagnostics && (
+              <Card style={{ padding: 12, marginBottom: 10, background: 'var(--paper-2)' }}>
+                <details>
+                  <summary className="hand" style={{ cursor: 'pointer', fontSize: 12 }}>Data quality details</summary>
+                  <div className="col" style={{ gap: 6, marginTop: 10 }}>
+                    <div className="sub" style={{ fontSize: 12 }}>
+                      Pages: <b>{parsingDiagnostics?.pages ?? '--'}</b> · Tables parsed: <b>{parsingDiagnostics?.tablesParsed ?? '--'}</b> / <b>{parsingDiagnostics?.tablesDetected ?? '--'}</b>
+                    </div>
+                    <div className="sub" style={{ fontSize: 12 }}>
+                      Modes: <b>Card {Number(modeCounts.Card ?? 0)}</b> · <b>Bank {Number(modeCounts.Bank ?? 0)}</b> · <b>Text {Number(modeCounts.Text ?? 0)}</b>
+                    </div>
+                    <div className="sub" style={{ fontSize: 12 }}>
+                      Dedupe dropped: <b>{Number(parsingDiagnostics?.dedupeDropped ?? 0)}</b>
+                    </div>
+                    <div className="sub" style={{ fontSize: 12 }}>
+                      Rejected rows: <b>{Number(rejectedRows.missing_date ?? 0)}</b> missing date · <b>{Number(rejectedRows.missing_amount ?? 0)}</b> missing amount · <b>{Number(rejectedRows.non_positive_amount ?? 0)}</b> non-positive
+                    </div>
+                    {warnings.length > 0 && (
+                      <div className="col" style={{ gap: 4 }}>
+                        {warnings.map((text, idx) => (
+                          <div key={idx} className="sub" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {text}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </Card>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
               <Card style={{ padding: 14 }}>
                 <div className="h3" style={{ fontSize: 10, marginBottom: 6 }}>What is helping you</div>
-                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35 }}>{diagnosis.whatIsHealthy}</div>
+                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35 }}>
+                  {isAnySliderActive && simulated.savingsRate >= 25 ? (
+                    `Simulated runway: saving ${simulated.savingsRate}% of income.`
+                  ) : (
+                    diagnosis.whatIsHealthy
+                  )}
+                </div>
               </Card>
               <Card variant="alert" style={{ padding: 14 }}>
                 <div className="h3" style={{ fontSize: 10, marginBottom: 6, color: 'var(--risk)' }}>What needs attention</div>
-                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35, color: 'var(--risk)' }}>{diagnosis.whatNeedsAttention}</div>
+                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35, color: 'var(--risk)' }}>
+                  {isAnySliderActive ? (
+                    simulated.biggestLeak ? (
+                      `${simulated.biggestLeak.category} remains an overspend at ${simulated.biggestLeak.yourPct}%.`
+                    ) : (
+                      "No major discretionary leaks remain in this simulation!"
+                    )
+                  ) : (
+                    diagnosis.whatNeedsAttention
+                  )}
+                </div>
               </Card>
               <Card style={{ padding: 14, background: 'var(--paper-2)' }}>
                 <div className="h3" style={{ fontSize: 10, marginBottom: 6 }}>Best next move</div>
-                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35 }}>{diagnosis.bestNextMove}</div>
+                <div className="hand" style={{ fontSize: 16, lineHeight: 1.35 }}>
+                  {isAnySliderActive ? (
+                    simulated.biggestLeak ? (
+                      `Trimming ${simulated.biggestLeak.category} further could reclaim another ₹${simulated.biggestLeak.potentialSave.toLocaleString('en-IN')}/mo.`
+                    ) : (
+                      "Lock in these budget cuts to secure these monthly savings."
+                    )
+                  ) : (
+                    diagnosis.bestNextMove
+                  )}
+                </div>
               </Card>
             </div>
 
@@ -217,13 +305,13 @@ export function Insights() {
                   {previous ? (
                     <div className="col" style={{ gap: 6 }}>
                       <div className="sub" style={{ fontSize: 12 }}>
-                        Score: <b>{score.value - previous.snapshot.score > 0 ? '+' : ''}{score.value - previous.snapshot.score}</b>
+                        Score: <b>{(isAnySliderActive ? simulated.score : score.value) - previous.snapshot.score > 0 ? '+' : ''}{(isAnySliderActive ? simulated.score : score.value) - previous.snapshot.score}</b>
                       </div>
                       <div className="sub" style={{ fontSize: 12 }}>
-                        Savings rate: <b>{metrics.savingsRate - previous.snapshot.savingsRate > 0 ? '+' : ''}{metrics.savingsRate - previous.snapshot.savingsRate}%</b>
+                        Savings rate: <b>{(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate) - previous.snapshot.savingsRate > 0 ? '+' : ''}{(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate) - previous.snapshot.savingsRate}%</b>
                       </div>
                       <div className="sub" style={{ fontSize: 12 }}>
-                        Expenses: <b>{formatINR(metrics.expenses - previous.snapshot.expenses)}</b> vs last statement
+                        Expenses: <b>{formatINR((isAnySliderActive ? simulated.expenses : metrics.expenses) - previous.snapshot.expenses)}</b> vs last statement
                       </div>
                     </div>
                   ) : (
@@ -237,16 +325,16 @@ export function Insights() {
                   <div className="h3" style={{ fontSize: 10, marginBottom: 6 }}>Goal progress</div>
                   <div className="col" style={{ gap: 6 }}>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Savings target: <b>{goals.savingsRateTarget}%</b> {metrics.savingsRate >= goals.savingsRateTarget ? '(met)' : `(current ${metrics.savingsRate}%)`}
+                      Savings target: <b>{goals.savingsRateTarget}%</b> {(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate) >= goals.savingsRateTarget ? '(met)' : `(current ${(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate)}%)`}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Food cap: <b>{goals.categoryCaps.food}%</b> of spend
+                      Food cap: <b>{goals.categoryCaps.food}%</b> of spend {((isAnySliderActive ? simulated.breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct : breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct) ?? 0) <= goals.categoryCaps.food ? '✅' : '❌'}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Shopping cap: <b>{goals.categoryCaps.shopping}%</b> of spend
+                      Shopping cap: <b>{goals.categoryCaps.shopping}%</b> of spend {((isAnySliderActive ? simulated.breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct : breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct) ?? 0) <= goals.categoryCaps.shopping ? '✅' : '❌'}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Subscription cap: <b>{formatINR(goals.categoryCaps.subscriptions)}</b>/month
+                      Subscription cap: <b>{formatINR(goals.categoryCaps.subscriptions)}</b>/month {(isAnySliderActive ? simulatedSubsTotal : monthlySubscriptionTotal) <= goals.categoryCaps.subscriptions ? '✅' : '❌'}
                     </div>
                   </div>
                 </Card>
@@ -255,17 +343,26 @@ export function Insights() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
               <MetricCard label="Income" value={formatK(metrics.income)} exact={formatINR(metrics.income)} color="var(--ok)" />
-              <MetricCard label="Expenses" value={formatK(metrics.expenses)} exact={formatINR(metrics.expenses)} color="var(--risk)" />
-              <MetricCard label="Saved" value={formatK(metrics.saved)} exact={`${Math.round(metrics.savingsRate)}%`} />
+              <MetricCard
+                label={isAnySliderActive ? "Projected Expenses" : "Expenses"}
+                value={isAnySliderActive ? formatK(simulated.expenses) : formatK(metrics.expenses)}
+                exact={isAnySliderActive ? `${formatINR(simulated.expenses)} (was ${formatINR(metrics.expenses)})` : formatINR(metrics.expenses)}
+                color="var(--risk)"
+              />
+              <MetricCard
+                label={isAnySliderActive ? "Projected Saved" : "Saved"}
+                value={isAnySliderActive ? formatK(simulated.saved) : formatK(metrics.saved)}
+                exact={isAnySliderActive ? `${simulated.savingsRate}% simulated (was ${Math.round(metrics.savingsRate)}%)` : `${Math.round(metrics.savingsRate)}%`}
+              />
             </div>
 
-            {breakdown.length > 0 && (
+            {activeBreakdown.length > 0 && (
               <Card style={{ padding: 12, marginBottom: 10 }}>
-                <div className="h3" style={{ marginBottom: 10 }}>Where the money went</div>
+                <div className="h3" style={{ marginBottom: 10 }}>{isAnySliderActive ? "Where the money went (Projected)" : "Where the money went"}</div>
                 <div className="row" style={{ gap: 14, alignItems: 'center' }}>
-                  <Donut segments={donutSegments} centerLabel={formatINR(metrics.expenses)} centerSub="spent" />
+                  <Donut segments={donutSegments} centerLabel={formatINR(isAnySliderActive ? simulated.expenses : metrics.expenses)} centerSub="spent" />
                   <div className="legend" style={{ flex: 1 }}>
-                    {breakdown.map(b => (
+                    {activeBreakdown.map(b => (
                       <div className="li" key={b.category}>
                         <span className="dot" style={{ background: getCatColor(b.category) }} />
                         {b.category} <b style={{ marginLeft: 'auto' }}>{b.pct}%</b>
@@ -276,19 +373,49 @@ export function Insights() {
               </Card>
             )}
 
-            {biggestLeak && (
-              <Card variant="alert" style={{ padding: 14, marginBottom: 10 }}>
-                <div className="row between">
-                  <span className="h3" style={{ color: 'var(--risk)', fontSize: 10 }}>Top fix area</span>
-                  <StatusPill status="risk" label={`${biggestLeak.yourPct}% vs ${biggestLeak.healthyPct}%`} />
-                </div>
-                <div className="hand" style={{ fontSize: 20, lineHeight: 1.2, margin: '8px 0', color: 'var(--risk)', fontWeight: 700 }}>
-                  {biggestLeak.category} is the clearest pressure point this month.
-                </div>
-                <div className="sub" style={{ fontSize: 12, color: 'var(--ink)' }}>
-                  Potential recovery: <b>{formatINR(biggestLeak.potentialSave)}/mo</b>
-                </div>
-              </Card>
+            {isAnySliderActive ? (
+              simulated.biggestLeak ? (
+                <Card variant="alert" style={{ padding: 14, marginBottom: 10, background: 'rgba(232,165,75,0.08)', borderColor: 'var(--warn)' }}>
+                  <div className="row between">
+                    <span className="h3" style={{ color: 'var(--warn)', fontSize: 10 }}>Projected Top Fix Area</span>
+                    <StatusPill status="warn" label={`${simulated.biggestLeak.yourPct}% vs ${simulated.biggestLeak.healthyPct}%`} />
+                  </div>
+                  <div className="hand" style={{ fontSize: 18, lineHeight: 1.2, margin: '8px 0', color: 'var(--warn)', fontWeight: 700 }}>
+                    {simulated.biggestLeak.category} remains an opportunity, but you've already simulated reclaiming some of it.
+                  </div>
+                  <div className="sub" style={{ fontSize: 12, color: 'var(--ink)' }}>
+                    Remaining potential recovery: <b>{formatINR(simulated.biggestLeak.potentialSave)}/mo</b>
+                  </div>
+                </Card>
+              ) : (
+                <Card style={{ padding: 14, marginBottom: 10, background: 'rgba(43,147,72,0.08)', borderColor: 'var(--ok)' }}>
+                  <div className="row between">
+                    <span className="h3" style={{ color: 'var(--ok)', fontSize: 10 }}>Top Fix Area Resolved</span>
+                    <StatusPill status="ok" label="Healthy" />
+                  </div>
+                  <div className="hand" style={{ fontSize: 18, lineHeight: 1.2, margin: '8px 0', color: 'var(--ok)', fontWeight: 700 }}>
+                    Excellent! Your simulated budget cuts bring all high-discretionary categories within healthy benchmark ranges.
+                  </div>
+                  <div className="sub" style={{ fontSize: 12, color: 'var(--ink)' }}>
+                    Your simulated leak recovery is fully realized.
+                  </div>
+                </Card>
+              )
+            ) : (
+              biggestLeak && (
+                <Card variant="alert" style={{ padding: 14, marginBottom: 10 }}>
+                  <div className="row between">
+                    <span className="h3" style={{ color: 'var(--risk)', fontSize: 10 }}>Top fix area</span>
+                    <StatusPill status="risk" label={`${biggestLeak.yourPct}% vs ${biggestLeak.healthyPct}%`} />
+                  </div>
+                  <div className="hand" style={{ fontSize: 20, lineHeight: 1.2, margin: '8px 0', color: 'var(--risk)', fontWeight: 700 }}>
+                    {biggestLeak.category} is the clearest pressure point this month.
+                  </div>
+                  <div className="sub" style={{ fontSize: 12, color: 'var(--ink)' }}>
+                    Potential recovery: <b>{formatINR(biggestLeak.potentialSave)}/mo</b>
+                  </div>
+                </Card>
+              )
             )}
 
             <div className="h3" style={{ margin: '12px 4px 6px' }}>Evidence behind the diagnosis</div>
@@ -315,7 +442,7 @@ export function Insights() {
                 <span className="sub" style={{ fontSize: 11 }}>live</span>
               </div>
               <div className="hand sub" style={{ fontSize: 12, margin: '2px 0 10px' }}>
-                Try small cuts and see the monthly savings change before you commit to anything.
+                Try small cuts and see the monthly savings, runway, and health score change in real time.
               </div>
               <WhatIfSlider label="Food" emoji="Food" value={whatIfReductions.food} onChange={v => setWhatIfReduction('food', v)} />
               <WhatIfSlider label="Shop" emoji="Shop" value={whatIfReductions.shopping} onChange={v => setWhatIfReduction('shopping', v)} />
@@ -339,24 +466,56 @@ export function Insights() {
                   <span className="sub" style={{ fontSize: 11 }}>{subscriptions.length} found</span>
                 </div>
                 <div className="col" style={{ gap: 4, marginTop: 8 }}>
-                  {subscriptions.map((sub, i) => (
-                    <div key={i} className="row between" style={{ fontSize: 12 }}>
-                      <span>{sub.name}</span>
-                      <span className="mono">{formatINR(sub.amount)}</span>
-                    </div>
-                  ))}
+                  {subscriptions.map((sub, i) => {
+                    const isCut = whatIfReductions.subs > 0;
+                    const subProjectedAmt = Math.max(0, sub.amount - Math.round(sub.amount * whatIfReductions.subs / 100));
+                    return (
+                      <div key={i} className="row between" style={{ fontSize: 12 }}>
+                        <span style={{ textDecoration: isCut && subProjectedAmt === 0 ? 'line-through' : 'none', opacity: isCut && subProjectedAmt === 0 ? 0.5 : 1 }}>{sub.name}</span>
+                        <span className="mono">
+                          {isCut ? (
+                            <span>
+                              {formatINR(subProjectedAmt)}
+                              {subProjectedAmt < sub.amount && (
+                                <span style={{ fontSize: 10, color: 'var(--ok)', marginLeft: 6 }}>
+                                  (-{whatIfReductions.subs}%)
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            formatINR(sub.amount)
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div style={{ borderTop: '1px dashed var(--line-soft)', marginTop: 8, paddingTop: 8 }}>
                   <div className="row between">
                     <span className="hand" style={{ fontSize: 13, fontWeight: 700 }}>Total / month</span>
-                    <span className="mono" style={{ fontWeight: 800 }}>{formatINR(monthlySubscriptionTotal)}</span>
+                    <span className="mono" style={{ fontWeight: 800 }}>
+                      {isAnySliderActive ? (
+                        <span>
+                          {formatINR(simulatedSubsTotal)}
+                          {simulatedSubsTotal < monthlySubscriptionTotal && (
+                            <span style={{ fontSize: 10, color: 'var(--ok)', marginLeft: 6 }}>
+                              (was {formatINR(monthlySubscriptionTotal)})
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        formatINR(monthlySubscriptionTotal)
+                      )}
+                    </span>
                   </div>
                 </div>
               </Card>
             )}
 
             <Card style={{ padding: 14, marginBottom: 10 }}>
-              <div className="row between"><span className="h3">Emergency cushion</span></div>
+              <div className="row between">
+                <span className="h3">{isAnySliderActive ? "Projected Emergency Runway" : "Emergency cushion"}</span>
+              </div>
               {emergency.months == null ? (
                 <>
                   <div className="hand" style={{ fontSize: 18, lineHeight: 1.3, margin: '6px 0' }}>Unavailable for this statement</div>
@@ -365,19 +524,43 @@ export function Insights() {
               ) : (
                 <>
                   <div className="row" style={{ alignItems: 'baseline', gap: 6, margin: '6px 0' }}>
-                    <span className="big-num" style={{ fontSize: 36 }}>{emergency.months.toFixed(1)}</span>
+                    <span className="big-num" style={{ fontSize: 36 }}>
+                      {isAnySliderActive ? (simulated.emergencyMonths !== null ? simulated.emergencyMonths.toFixed(1) : '--') : emergency.months.toFixed(1)}
+                    </span>
                     <span className="sub">months</span>
+                    {isAnySliderActive && (
+                      <span className="pill ok" style={{ fontSize: 10, marginLeft: 6, background: 'rgba(43,147,72,0.15)', color: 'var(--ok)' }}>
+                        Projected (was {emergency.months.toFixed(1)})
+                      </span>
+                    )}
                   </div>
                   <div className="hand sub" style={{ fontSize: 12, marginBottom: 8 }}>
                     Estimated runway if income stopped now. Target: {emergency.target} to 6 months.
                   </div>
-                  <Gauge fill={(emergency.months / 6) * 100} status={emergency.months < 2 ? 'warn' : emergency.months < 3 ? 'warn' : 'ok'} />
-                  {emergency.monthlyContribNeeded != null && emergency.monthlyContribNeeded > 0 && (
-                    <Card style={{ padding: '8px 10px', marginTop: 10, background: 'var(--paper-2)', borderStyle: 'dashed' }}>
-                      <div className="hand sub" style={{ fontSize: 12 }}>
-                        Add <b style={{ color: 'var(--blue)' }}>{formatINR(emergency.monthlyContribNeeded)}/mo</b> to reach {emergency.target} months in one year.
-                      </div>
-                    </Card>
+                  <Gauge
+                    fill={isAnySliderActive ? ((simulated.emergencyMonths ?? 0) / 6) * 100 : (emergency.months / 6) * 100}
+                    status={
+                      isAnySliderActive
+                        ? ((simulated.emergencyMonths ?? 0) < 2 ? 'warn' : (simulated.emergencyMonths ?? 0) < 3 ? 'warn' : 'ok')
+                        : (emergency.months < 2 ? 'warn' : emergency.months < 3 ? 'warn' : 'ok')
+                    }
+                  />
+                  {isAnySliderActive ? (
+                    simulated.emergencyMonthlyContribNeeded !== null && simulated.emergencyMonthlyContribNeeded > 0 && (
+                      <Card style={{ padding: '8px 10px', marginTop: 10, background: 'var(--paper-2)', borderStyle: 'dashed' }}>
+                        <div className="hand sub" style={{ fontSize: 12 }}>
+                          Projected contribution needed is cut to <b style={{ color: 'var(--ok)' }}>{formatINR(simulated.emergencyMonthlyContribNeeded)}/mo</b> to reach target runway in one year.
+                        </div>
+                      </Card>
+                    )
+                  ) : (
+                    emergency.monthlyContribNeeded != null && emergency.monthlyContribNeeded > 0 && (
+                      <Card style={{ padding: '8px 10px', marginTop: 10, background: 'var(--paper-2)', borderStyle: 'dashed' }}>
+                        <div className="hand sub" style={{ fontSize: 12 }}>
+                          Add <b style={{ color: 'var(--blue)' }}>{formatINR(emergency.monthlyContribNeeded)}/mo</b> to reach {emergency.target} months in one year.
+                        </div>
+                      </Card>
+                    )
                   )}
                 </>
               )}

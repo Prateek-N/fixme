@@ -37,10 +37,28 @@ export function Upload() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let terminalEventReceived = false;
 
         function processChunk() {
           reader.read().then(({ done, value }) => {
-            if (done) return;
+            if (done) {
+              if (!terminalEventReceived) {
+                const message = 'Connection closed before the analysis finished.';
+                const state = useAppStore.getState();
+                state.setParseError(message);
+                state.setParsedData(null);
+                state.setRawTransactions([]);
+                state.addLiveFinding({
+                  id: crypto.randomUUID(),
+                  icon: 'X',
+                  text: message,
+                });
+                state.setParsing(false);
+                state.setProgress(100);
+                setTimeout(() => state.setScreen('insights'), 500);
+              }
+              return;
+            }
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
@@ -66,6 +84,7 @@ export function Upload() {
                     text: evt.text,
                   });
                 } else if (evt.type === 'done') {
+                  terminalEventReceived = true;
                   useAppStore.getState().setParseError(null);
                   useAppStore.getState().setParsedData(evt.data || null);
                   useAppStore.getState().setRawTransactions(evt.transactions || []);
@@ -76,6 +95,7 @@ export function Upload() {
                   useAppStore.getState().setProgress(100);
                   setTimeout(() => useAppStore.getState().setScreen('insights'), 1000);
                 } else if (evt.type === 'error') {
+                  terminalEventReceived = true;
                   useAppStore.getState().setParseError(evt.error || 'Parsing failed');
                   useAppStore.getState().setParsedData(null);
                   useAppStore.getState().setRawTransactions([]);

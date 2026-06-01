@@ -1,0 +1,61 @@
+<h2>What should we improve next?</h2>
+<p class="subtitle">Select up to 3 priorities. I’ll turn the top picks into a concrete plan (scope, success criteria, and implementation steps).</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="parsing-accuracy" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Parsing accuracy</h3>
+      <p>Support more statement formats, reduce missed/duplicate transactions, better date/amount detection.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="sse-reliability" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Reliability &amp; error handling</h3>
+      <p>Cancel/abort analysis, better SSE robustness, clearer failures, fewer “stuck” states.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="review-workflow" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Transactions review workflow</h3>
+      <p>Filtering by insight, bulk actions, undo, better “transfer vs expense” handling, save/correct flows.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="insights-quality" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Insights quality</h3>
+      <p>Better scoring drivers, clearer “why”, more actionable next steps, fewer assumptions.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="history-dashboard" onclick="toggleSelect(this)">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>Dashboard &amp; history</h3>
+      <p>Month comparisons, trends, goal tracking, “open previous” flows, cleanup tools.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="dx-testing" onclick="toggleSelect(this)">
+    <div class="letter">F</div>
+    <div class="content">
+      <h3>Dev experience &amp; tests</h3>
+      <p>Add a small test harness for the parser/insights, fixtures, and CI confidence.</p>
+    </div>
+  </div>
+</div>
+
+<div class="cards" style="margin-top: 18px">
+  <div class="card">
+    <div class="card-body">
+      <h3>How we’ll proceed</h3>
+      <p>After you pick priorities, I’ll propose 2–3 approaches for the top item and a minimal milestone plan.</p>
+    </div>
+  </div>
+</div>
