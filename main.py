@@ -2,12 +2,38 @@ import io
 import re
 import asyncio
 import json
+import time
+import collections
+import os
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("fixmyfinance")
 import pandas as pd
 import pdfplumber
 from datetime import datetime
 
+# Simple in-memory rate limiter: max 5 parse requests per IP per 60 seconds
+_rate_limit_store: dict[str, collections.deque] = {}
+_RATE_LIMIT_MAX = 5
+_RATE_LIMIT_WINDOW = 60
+
+def _is_rate_limited(client_ip: str) -> bool:
+    now = time.monotonic()
+    timestamps = _rate_limit_store.setdefault(client_ip, collections.deque())
+    while timestamps and now - timestamps[0] > _RATE_LIMIT_WINDOW:
+        timestamps.popleft()
+    if len(timestamps) >= _RATE_LIMIT_MAX:
+        return True
+    timestamps.append(now)
+    return False
+
 try:
-    from fastapi import FastAPI, UploadFile, File
+    from fastapi import FastAPI, UploadFile, File, Request
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import StreamingResponse
     from fastapi.middleware.cors import CORSMiddleware
@@ -27,12 +53,18 @@ except Exception:
     app = None
 
 if app is not None and CORSMiddleware is not None and StaticFiles is not None:
+    _cors_env = os.environ.get("ALLOWED_ORIGINS", "")
+    _allowed_origins = (
+        [o.strip() for o in _cors_env.split(",") if o.strip()]
+        if _cors_env
+        else ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=_allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["POST", "GET"],
+        allow_headers=["Content-Type"],
     )
 
     app.mount("/app", StaticFiles(directory="public", html=True), name="public")
@@ -1230,8 +1262,25 @@ def compute_insights(transactions: list[dict], parsing_diagnostics: dict | None 
 
 if app is not None and StreamingResponse is not None and File is not None:
     @app.post("/api/parse")
-    async def parse_statement(file: UploadFile = File(...)):
+    async def parse_statement(request: Request, file: UploadFile = File(...)):
+        from fastapi.responses import JSONResponse
+        client_ip = request.client.host if request.client else "unknown"
+        if _is_rate_limited(client_ip):
+            logger.warning("Rate limit hit for ip=%s", client_ip)
+            return JSONResponse(status_code=429, content={"error": "Too many requests. Please wait a moment before trying again."})
+
+        MAX_SIZE = 20 * 1024 * 1024  # 20 MB
         content = await file.read()
+
+        if len(content) > MAX_SIZE:
+            logger.warning("Rejected oversized upload from %s: %d bytes", client_ip, len(content))
+            return JSONResponse(status_code=413, content={"error": "File too large. Maximum size is 20 MB."})
+
+        if not (file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf")):
+            logger.warning("Rejected non-PDF upload from %s: content_type=%s", client_ip, file.content_type)
+            return JSONResponse(status_code=415, content={"error": "Only PDF files are supported."})
+
+        logger.info("Parse request: file=%s size=%d ip=%s", file.filename, len(content), client_ip)
 
         async def generate():
             def sse(data): return f"data: {json.dumps(data)}\n\n"
@@ -1246,12 +1295,14 @@ if app is not None and StreamingResponse is not None and File is not None:
             try:
                 transactions = extract_transactions_from_pdf(content, diagnostics=diagnostics)
             except Exception as e:
+                logger.error("PDF extraction failed for %s: %s", file.filename, e)
                 yield sse({"type": "error", "error": f"Could not read PDF: {e}"})
                 return
 
             yield sse({"type": "progress", "pct": 55, "message": f"Found {len(transactions)} transactions"})
             await asyncio.sleep(0.5)
             if len(transactions) == 0:
+                logger.warning("Zero transactions extracted from %s", file.filename)
                 yield sse({"type": "insight", "icon": "!", "text": "We could not extract enough reliable transactions to score this statement."})
                 await asyncio.sleep(0.5)
                 yield sse({"type": "done", "data": build_empty_diagnosis_payload(0, parsing_diagnostics=diagnostics), "transactions": []})
@@ -1282,6 +1333,7 @@ if app is not None and StreamingResponse is not None and File is not None:
                 yield sse({"type": "insight", "icon": "i", "text": "Income was estimated because this looks like an expense-only statement."})
                 await asyncio.sleep(0.3)
 
+            logger.info("Parse complete: file=%s txns=%d score=%s", file.filename, len(transactions), data.get("score", {}).get("value"))
             yield sse({"type": "progress", "pct": 100, "message": "Done!"})
             await asyncio.sleep(0.3)
 
@@ -1294,6 +1346,85 @@ if app is not None and StreamingResponse is not None and File is not None:
     async def recompute_statement(payload: dict):
         transactions = payload.get("transactions", [])
         return compute_insights(transactions)
+
+
+    @app.post("/api/suggest")
+    async def capture_suggestion(payload: dict):
+        email = str(payload.get("email", "")).strip()
+        concern = str(payload.get("concern", "")).strip()
+        num1 = int(payload.get("challengeNum1", 0))
+        num2 = int(payload.get("challengeNum2", 0))
+        answer = int(payload.get("answer", 0))
+
+        # 1. Stateless CAPTCHA Verification
+        if num1 + num2 != answer:
+            return {"success": False, "error": "CAPTCHA verification failed. Please try again."}
+
+        if not email or not concern:
+            return {"success": False, "error": "Email and Concern fields cannot be blank."}
+
+        # 2. Log Suggestion Locally
+        suggestion_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "email": email,
+            "concern": concern,
+        }
+
+        suggestions_file = os.environ.get("SUGGESTIONS_FILE", "suggestions.json")
+        try:
+            existing: list = []
+            if os.path.exists(suggestions_file):
+                try:
+                    with open(suggestions_file, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except Exception:
+                    existing = []
+            existing.append(suggestion_entry)
+            tmp = suggestions_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(existing, f, indent=2)
+            os.replace(tmp, suggestions_file)
+        except Exception as e:
+            logger.warning("Could not write to %s: %s", suggestions_file, e)
+
+        # 3. Optional Resend Integration
+        api_key = os.environ.get("RESEND_API_KEY")
+        if api_key:
+            import urllib.request
+            import urllib.parse
+            url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            email_payload = {
+                "from": "FixMyFinance <onboarding@resend.dev>",
+                "to": [os.environ.get("ADMIN_EMAIL", "admin@fixmyfinance.app")],
+                "subject": "New Suggestion Received",
+                "html": f"""
+                <h3>New FixMyFinance Feedback</h3>
+                <p><strong>From:</strong> {email}</p>
+                <p><strong>Concern/Suggestion:</strong></p>
+                <blockquote style="border-left: 4px solid #2F2FE4; padding-left: 12px; font-style: italic; background: #f8f9fc; padding: 10px;">
+                    {concern.replace("\n", "<br/>")}
+                </blockquote>
+                <p style="font-size: 11px; color: #666; margin-top: 15px;">Received locally on device at {datetime.now().strftime("%d %b %Y %H:%M")}</p>
+                """
+            }
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(email_payload).encode("utf-8"),
+                    headers=headers,
+                    method="POST"
+                )
+                with urllib.request.urlopen(req) as resp:
+                    resp.read()
+            except Exception as e:
+                logger.warning("Resend email failed: %s", e)
+
+        return {"success": True, "message": "Suggestion captured successfully."}
+
 
 
 # ─────────────────────────────────────────────

@@ -168,13 +168,29 @@ export function Dashboard() {
             </Card>
           </>
         ) : (
-          <Card style={{ padding: 24, textAlign: 'center' }}>
-            <div className="hand" style={{ fontSize: 20, marginBottom: 8 }}>No local history yet</div>
-            <div className="sub" style={{ fontSize: 12, marginBottom: 16 }}>
-              Import a statement to start building month-over-month trends and progress tracking on this device.
+          <div className="col" style={{ gap: 12 }}>
+            <Card variant="hero-ink" style={{ padding: 24 }}>
+              <div className="hand" style={{ fontSize: 22, color: '#fff', marginBottom: 6 }}>Start your money history</div>
+              <div className="sub" style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', marginBottom: 20, lineHeight: 1.5 }}>
+                Import your first bank or card statement. Every statement you add unlocks a new layer of insight — score trends, month comparisons, and goal tracking.
+              </div>
+              <Button size="wide" onClick={() => setScreen('upload')}>Import your first statement</Button>
+            </Card>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              {[
+                { icon: '📈', title: 'Score over time', desc: 'Watch your money health score move month to month as your habits improve.' },
+                { icon: '📊', title: 'Month vs month', desc: 'See exactly how your spending and savings rate shifted from last month.' },
+                { icon: '🎯', title: 'Goal tracking', desc: 'Set savings rate and category caps — the dashboard tracks whether you hit them.' },
+              ].map(({ icon, title, desc }) => (
+                <Card key={title} style={{ padding: 16, opacity: 0.7 }}>
+                  <div style={{ fontSize: 22, marginBottom: 8 }}>{icon}</div>
+                  <div className="h3" style={{ marginBottom: 4 }}>{title}</div>
+                  <div className="sub" style={{ fontSize: 12, lineHeight: 1.45 }}>{desc}</div>
+                </Card>
+              ))}
             </div>
-            <Button onClick={() => setScreen('upload')}>Import your first statement</Button>
-          </Card>
+          </div>
         )}
       </div>
     </div>

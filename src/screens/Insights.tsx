@@ -342,7 +342,12 @@ export function Insights() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
-              <MetricCard label="Income" value={formatK(metrics.income)} exact={formatINR(metrics.income)} color="var(--ok)" />
+              <MetricCard
+                label={dataQuality.inferredIncome ? 'Income (est.)' : 'Income'}
+                value={formatK(metrics.income)}
+                exact={dataQuality.inferredIncome ? `${formatINR(metrics.income)} — estimated from expenses` : formatINR(metrics.income)}
+                color={dataQuality.inferredIncome ? 'var(--warn)' : 'var(--ok)'}
+              />
               <MetricCard
                 label={isAnySliderActive ? "Projected Expenses" : "Expenses"}
                 value={isAnySliderActive ? formatK(simulated.expenses) : formatK(metrics.expenses)}
@@ -568,6 +573,50 @@ export function Insights() {
           </>
         )}
 
+        {(goals.savingsRateTarget > 0 || goals.categoryCaps.food > 0 || goals.categoryCaps.shopping > 0 || goals.categoryCaps.subscriptions > 0) && (() => {
+          const foodPct = breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct ?? null;
+          const shopPct = breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct ?? null;
+          const goalRows: { label: string; target: string; actual: string; met: boolean | null }[] = [];
+
+          if (goals.savingsRateTarget > 0) {
+            const actual = Math.round(metrics.savingsRate);
+            goalRows.push({ label: 'Savings rate', target: `≥ ${goals.savingsRateTarget}%`, actual: `${actual}%`, met: actual >= goals.savingsRateTarget });
+          }
+          if (goals.categoryCaps.food > 0 && foodPct !== null) {
+            goalRows.push({ label: 'Food spending', target: `≤ ${goals.categoryCaps.food}%`, actual: `${Math.round(foodPct)}%`, met: foodPct <= goals.categoryCaps.food });
+          }
+          if (goals.categoryCaps.shopping > 0 && shopPct !== null) {
+            goalRows.push({ label: 'Shopping spending', target: `≤ ${goals.categoryCaps.shopping}%`, actual: `${Math.round(shopPct)}%`, met: shopPct <= goals.categoryCaps.shopping });
+          }
+          if (goals.categoryCaps.subscriptions > 0) {
+            goalRows.push({ label: 'Subscriptions', target: `≤ ${formatINR(goals.categoryCaps.subscriptions)}/mo`, actual: formatINR(monthlySubscriptionTotal), met: monthlySubscriptionTotal <= goals.categoryCaps.subscriptions });
+          }
+
+          if (goalRows.length === 0) return null;
+          const metCount = goalRows.filter(r => r.met).length;
+
+          return (
+            <Card style={{ padding: 14, marginBottom: 10 }}>
+              <div className="row between" style={{ marginBottom: 10 }}>
+                <span className="h3">Goal scorecard</span>
+                <span className="sub" style={{ fontSize: 11 }}>{metCount}/{goalRows.length} met · <button style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', fontSize: 11, padding: 0 }} onClick={() => setScreen('goals')}>Edit goals</button></span>
+              </div>
+              <div className="col" style={{ gap: 8 }}>
+                {goalRows.map(row => (
+                  <div key={row.label} className="row between" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, background: row.met ? 'rgba(43,147,72,0.08)' : 'rgba(209,50,75,0.07)' }}>
+                    <span style={{ color: 'var(--ink)' }}>{row.label}</span>
+                    <span className="row" style={{ gap: 10 }}>
+                      <span className="sub">target {row.target}</span>
+                      <span style={{ fontWeight: 700, color: row.met ? 'var(--ok)' : 'var(--risk)' }}>{row.actual}</span>
+                      <span>{row.met ? '✓' : '✗'}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          );
+        })()}
+
         <Card variant="hero-blue" style={{ padding: 14, marginBottom: 10 }}>
           <div className="hand" style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', opacity: 0.7 }}>
             Spending persona
@@ -589,7 +638,7 @@ export function Insights() {
         </Card>
 
         <div className="sub" style={{ fontSize: 10, textAlign: 'center', padding: 10 }}>
-          Your statement is processed locally and not stored by the app.
+          Your statement is processed locally, and any saved report history stays on this device unless you clear it.
         </div>
       </div>
     </div>

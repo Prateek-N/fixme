@@ -223,6 +223,8 @@ function buildStatementRecord(sourceName: string, transactions: Transaction[], d
 interface AppState {
     currentScreen: Screen;
     setScreen: (screen: Screen) => void;
+    screenHistory: Screen[];
+    goBackScreen: (fallback?: Screen) => void;
 
     file: File | null;
     setFile: (file: File | null) => void;
@@ -272,7 +274,26 @@ export const useAppStore = create<AppState>()(
     persist(
         (set, get) => ({
             currentScreen: 'landing',
-            setScreen: (screen) => set({ currentScreen: screen }),
+            screenHistory: [],
+            setScreen: (screen) => set((state) => {
+                if (state.currentScreen === screen) return {};
+                const nextHistory = [...state.screenHistory, state.currentScreen].slice(-20);
+                return {
+                    currentScreen: screen,
+                    screenHistory: nextHistory,
+                };
+            }),
+            goBackScreen: (fallback = 'landing') => set((state) => {
+                const previous = state.screenHistory[state.screenHistory.length - 1];
+                if (!previous) {
+                    if (state.currentScreen === fallback) return {};
+                    return { currentScreen: fallback, screenHistory: [] };
+                }
+                return {
+                    currentScreen: previous,
+                    screenHistory: state.screenHistory.slice(0, -1),
+                };
+            }),
 
             file: null,
             setFile: (file) => set({ file }),
@@ -473,7 +494,14 @@ export function computeSimulatedInsights(data: InsightPayload | null, reductions
     });
 
     const healthyPct: Record<string, number> = { Food: 20, Shopping: 15, Transport: 10, Entertainment: 5, Education: 5 };
-    const leakCandidates: any[] = [];
+    interface LeakCandidate {
+        category: string;
+        amount: number;
+        yourPct: number;
+        healthyPct: number;
+        potentialSave: number;
+    }
+    const leakCandidates: LeakCandidate[] = [];
     breakdown.forEach(b => {
         const healthy = healthyPct[b.category];
         if (healthy === undefined) return;

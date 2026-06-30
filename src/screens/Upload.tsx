@@ -29,8 +29,27 @@ export function Upload() {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    fetch('/api/parse', { method: 'POST', body: formData })
-      .then(response => {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 90_000);
+
+    fetch('/api/parse', { method: 'POST', body: formData, signal: abortController.signal })
+      .then(async response => {
+        if (!response.ok && !response.body) {
+          const json = await response.json().catch(() => ({}));
+          throw new Error(json.error || `Server error ${response.status}`);
+        }
+        if (response.status === 413) {
+          const json = await response.json().catch(() => ({}));
+          throw new Error(json.error || 'File too large. Maximum size is 20 MB.');
+        }
+        if (response.status === 415) {
+          const json = await response.json().catch(() => ({}));
+          throw new Error(json.error || 'Only PDF files are supported.');
+        }
+        if (response.status === 429) {
+          const json = await response.json().catch(() => ({}));
+          throw new Error(json.error || 'Too many requests. Please wait a moment before trying again.');
+        }
         if (!response.body) {
           throw new Error('The local analysis server returned an empty response.');
         }
@@ -42,6 +61,7 @@ export function Upload() {
         function processChunk() {
           reader.read().then(({ done, value }) => {
             if (done) {
+              clearTimeout(timeoutId);
               if (!terminalEventReceived) {
                 const message = 'Connection closed before the analysis finished.';
                 const state = useAppStore.getState();
@@ -88,7 +108,7 @@ export function Upload() {
                   useAppStore.getState().setParseError(null);
                   useAppStore.getState().setParsedData(evt.data || null);
                   useAppStore.getState().setRawTransactions(evt.transactions || []);
-                  if (evt.data && evt.transactions) {
+                  if (evt.data && evt.transactions?.length > 0 && !evt.data.dataQuality?.emptyState) {
                     useAppStore.getState().upsertStatementRecord(selectedFile.name, evt.transactions, evt.data);
                   }
                   useAppStore.getState().setParsing(false);
@@ -118,17 +138,19 @@ export function Upload() {
         processChunk();
       })
       .catch((error: Error) => {
-        useAppStore.getState().setParseError(error.message || 'Failed to connect to the local analysis server.');
-        useAppStore.getState().setParsedData(null);
-        useAppStore.getState().setRawTransactions([]);
-        useAppStore.getState().addLiveFinding({
-          id: crypto.randomUUID(),
-          icon: 'X',
-          text: 'Failed to connect to the analysis server.',
-        });
-        useAppStore.getState().setParsing(false);
-        useAppStore.getState().setProgress(100);
-        setTimeout(() => useAppStore.getState().setScreen('insights'), 500);
+        clearTimeout(timeoutId);
+        const isTimeout = error.name === 'AbortError';
+        const message = isTimeout
+          ? 'Analysis timed out after 90 seconds. Try a smaller or cleaner PDF.'
+          : (error.message || 'Failed to connect to the local analysis server.');
+        const state = useAppStore.getState();
+        state.setParseError(message);
+        state.setParsedData(null);
+        state.setRawTransactions([]);
+        state.addLiveFinding({ id: crypto.randomUUID(), icon: 'X', text: message });
+        state.setParsing(false);
+        state.setProgress(100);
+        setTimeout(() => state.setScreen('insights'), 500);
       });
   }, [pickedFile, setFile, setParsing, setProgress, clearLiveFindings, setScreen, setParseError]);
 
@@ -143,7 +165,7 @@ export function Upload() {
               <>
                 <h1 className="h1" style={{ marginBottom: 6, fontSize: 28 }}>Drop your statement.</h1>
                 <p className="hand sub" style={{ fontSize: 14, marginBottom: 20 }}>
-                  Works with exported bank PDFs and expense statements. If the file is sparse or incomplete, the final health check will say so clearly.
+                  Upload an exported PDF bank or card statement. If the file is sparse or incomplete, the final health check will say so clearly.
                 </p>
                 <Dropzone onFile={handleFile} />
                 <div style={{ marginTop: 12, textAlign: 'center' }}>
@@ -199,7 +221,7 @@ export function Upload() {
                 <div style={{ background: 'var(--paper-2)', border: '1px solid rgba(128,128,128,0.2)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
                   <div className="h3" style={{ fontSize: 10, marginBottom: 8 }}>How the diagnosis works</div>
                   <div className="sub" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    We estimate score drivers, recurring charges, and likely spending pressure from the transactions we can parse. If income must be inferred or the statement is too thin, the final report will lower its confidence and say why.
+                    We estimate score drivers, recurring charges, and likely spending pressure from the transactions we can parse. PDF statements are supported today. If income must be inferred or the statement is too thin, the final report will lower its confidence and say why.
                   </div>
                 </div>
 
