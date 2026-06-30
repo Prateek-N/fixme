@@ -337,7 +337,7 @@ export const useAppStore = create<AppState>()(
             personaTone: 'gentle',
             setPersonaTone: (personaTone) => set({ personaTone }),
 
-            theme: 'light',
+            theme: (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') as Theme,
             toggleTheme: () => set((s) => {
                 const next: Theme = s.theme === 'light' ? 'dark' : 'light';
                 applyTheme(next);
@@ -424,7 +424,8 @@ export const useAppStore = create<AppState>()(
                 personaTone: state.personaTone,
             }),
             onRehydrateStorage: () => (state) => {
-                applyTheme(state?.theme || 'light');
+                const systemDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+                applyTheme(state?.theme || (systemDark ? 'dark' : 'light'));
             },
         }
     )

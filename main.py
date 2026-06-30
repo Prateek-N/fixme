@@ -6,6 +6,8 @@ import time
 import collections
 import os
 import logging
+import secrets
+import random
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1348,17 +1350,38 @@ if app is not None and StreamingResponse is not None and File is not None:
         return compute_insights(transactions)
 
 
+    # Server-side CAPTCHA challenge store: token -> (num1, num2, expires_monotonic)
+    _challenges: dict[str, tuple[int, int, float]] = {}
+    _CHALLENGE_TTL = 600  # 10 minutes
+
+    @app.get("/api/challenge")
+    async def get_challenge():
+        now = time.monotonic()
+        expired = [t for t, (_, _, exp) in list(_challenges.items()) if now > exp]
+        for t in expired:
+            _challenges.pop(t, None)
+        num1 = random.randint(2, 9)
+        num2 = random.randint(2, 8)
+        token = secrets.token_urlsafe(16)
+        _challenges[token] = (num1, num2, now + _CHALLENGE_TTL)
+        return {"token": token, "num1": num1, "num2": num2}
+
     @app.post("/api/suggest")
     async def capture_suggestion(payload: dict):
         email = str(payload.get("email", "")).strip()
         concern = str(payload.get("concern", "")).strip()
-        num1 = int(payload.get("challengeNum1", 0))
-        num2 = int(payload.get("challengeNum2", 0))
-        answer = int(payload.get("answer", 0))
+        token = str(payload.get("challengeToken", ""))
+        answer = int(payload.get("answer", -1))
 
-        # 1. Stateless CAPTCHA Verification
+        # 1. Server-side CAPTCHA verification
+        challenge = _challenges.pop(token, None)
+        if challenge is None:
+            return {"success": False, "error": "CAPTCHA challenge expired or invalid. Please refresh and try again."}
+        num1, num2, expires = challenge
+        if time.monotonic() > expires:
+            return {"success": False, "error": "CAPTCHA challenge expired. Please refresh and try again."}
         if num1 + num2 != answer:
-            return {"success": False, "error": "CAPTCHA verification failed. Please try again."}
+            return {"success": False, "error": "CAPTCHA answer incorrect. Please try again."}
 
         if not email or not concern:
             return {"success": False, "error": "Email and Concern fields cannot be blank."}

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useAppStore, getPreviousStatement } from '../store/useAppStore';
+import { useAppStore, getPreviousStatement, type StatementRecord } from '../store/useAppStore';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -8,6 +8,36 @@ function deltaLabel(current: number, previous: number, suffix = ''): string {
   const delta = current - previous;
   const sign = delta > 0 ? '+' : '';
   return `${sign}${delta.toFixed(1)}${suffix}`;
+}
+
+function ScoreSparkline({ history }: { history: StatementRecord[] }) {
+  if (history.length < 2) return null;
+  const sorted = [...history].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const scores = sorted.map(r => r.snapshot.score);
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const W = 140, H = 36, PAD = 4;
+  const xs = scores.map((_, i) => PAD + (i / (scores.length - 1)) * (W - PAD * 2));
+  const range = max - min || 1;
+  const ys = scores.map(s => H - PAD - ((s - min) / range) * (H - PAD * 2));
+  const points = xs.map((x, i) => `${x},${ys[i]}`).join(' ');
+  const last = scores[scores.length - 1];
+  const prev = scores[scores.length - 2];
+  const color = last >= prev ? 'var(--ok)' : 'var(--risk)';
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="sub" style={{ fontSize: 10, marginBottom: 4 }}>Score trend ({sorted.length} statements)</div>
+      <svg width={W} height={H} style={{ overflow: 'visible', display: 'block' }}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+        {scores.map((_, i) => (
+          <circle key={i} cx={xs[i]} cy={ys[i]} r={i === scores.length - 1 ? 4 : 2.5} fill={color} />
+        ))}
+      </svg>
+      <div className="sub mono" style={{ fontSize: 10, marginTop: 2 }}>
+        {sorted[0].snapshot.periodLabel} → {sorted[sorted.length - 1].snapshot.periodLabel}
+      </div>
+    </div>
+  );
 }
 
 export function Dashboard() {
@@ -91,6 +121,7 @@ export function Dashboard() {
                     <div className="sub" style={{ fontSize: 11 }}>
                       Recurring spend: {deltaLabel(current.snapshot.recurringTotal, previous.snapshot.recurringTotal)}
                     </div>
+                    <ScoreSparkline history={statementHistory} />
                   </div>
                 ) : (
                   <div className="sub" style={{ fontSize: 12 }}>

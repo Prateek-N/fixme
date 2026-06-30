@@ -133,9 +133,26 @@ export function Insights() {
             <div className="sub mono" style={{ fontSize: 10 }}>{period.month} | {period.bankName}</div>
             <div className="hand" style={{ fontSize: 20, fontWeight: 700 }}>Your money health check</div>
           </div>
-          <button onClick={() => setScreen('upload')} style={{ background: 'none', border: '1px solid rgba(128,128,128,0.3)', borderRadius: 999, padding: '5px 12px', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--ui)' }}>
-            New analysis
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <button
+              onClick={() => {
+                const report = { generatedAt: new Date().toISOString(), period, score, metrics, breakdown, insights: parsedData.insights, subscriptions, emergency, persona };
+                const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `fixmyfinance-${period.month.replace(/\s+/g, '-').toLowerCase()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              style={{ background: 'none', border: '1px solid rgba(128,128,128,0.3)', borderRadius: 999, padding: '5px 12px', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--ui)' }}
+            >
+              Export ↓
+            </button>
+            <button onClick={() => setScreen('upload')} style={{ background: 'none', border: '1px solid rgba(128,128,128,0.3)', borderRadius: 999, padding: '5px 12px', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--ui)' }}>
+              New analysis
+            </button>
+          </div>
         </div>
 
         <div className="row wrap" style={{ gap: 8, marginBottom: 10 }}>
