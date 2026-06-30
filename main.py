@@ -413,6 +413,34 @@ def detect_and_parse_table(table: list, diagnostics: dict | None = None) -> list
     return []
 
 
+_BANK_PATTERNS: list[tuple[str, str]] = [
+    (r"axis\s*bank", "Axis Bank"),
+    (r"hdfc\s*bank", "HDFC Bank"),
+    (r"state\s*bank\s*of\s*india|sbi\b", "State Bank of India"),
+    (r"icici\s*bank", "ICICI Bank"),
+    (r"kotak\s*(mahindra)?\s*bank", "Kotak Bank"),
+    (r"yes\s*bank", "Yes Bank"),
+    (r"indusind\s*bank", "IndusInd Bank"),
+    (r"idfc\s*(first)?\s*bank", "IDFC First Bank"),
+    (r"punjab\s*national\s*bank|pnb\b", "Punjab National Bank"),
+    (r"bank\s*of\s*baroda\b", "Bank of Baroda"),
+    (r"canara\s*bank", "Canara Bank"),
+    (r"union\s*bank", "Union Bank"),
+    (r"federal\s*bank", "Federal Bank"),
+    (r"rbl\s*bank", "RBL Bank"),
+    (r"standard\s*chartered", "Standard Chartered"),
+    (r"citibank|citi\s*bank", "Citibank"),
+    (r"american\s*express|amex", "American Express"),
+]
+
+def detect_bank_from_text(text: str) -> str | None:
+    lower = text.lower()
+    for pattern, name in _BANK_PATTERNS:
+        if re.search(pattern, lower):
+            return name
+    return None
+
+
 def extract_transactions_from_pdf(content: bytes, diagnostics: dict | None = None) -> list[dict]:
     transactions = []
     seen = set()
@@ -422,6 +450,10 @@ def extract_transactions_from_pdf(content: bytes, diagnostics: dict | None = Non
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         if diagnostics is not None:
             diagnostics["pages"] = len(pdf.pages)
+            first_text = (pdf.pages[0].extract_text() or "") if pdf.pages else ""
+            detected_bank = detect_bank_from_text(first_text)
+            if detected_bank:
+                diagnostics["detectedBank"] = detected_bank
         for page in pdf.pages:
             tables = page.extract_tables()
             if diagnostics is not None:
@@ -1323,13 +1355,17 @@ if app is not None and StreamingResponse is not None and File is not None:
 
             data = compute_insights(transactions, parsing_diagnostics=diagnostics)
 
-            fname = file.filename or ""
-            if "axis" in fname.lower():
-                data["period"]["bankName"] = "Axis Bank"
-            elif "hdfc" in fname.lower():
-                data["period"]["bankName"] = "HDFC"
-            elif "sbi" in fname.lower():
-                data["period"]["bankName"] = "SBI"
+            # Content-based bank detection takes priority; filename is fallback
+            content_bank = diagnostics.get("detectedBank")
+            if content_bank:
+                data["period"]["bankName"] = content_bank
+                logger.info("Bank detected from content: %s", content_bank)
+            else:
+                fname = file.filename or ""
+                fname_lower = fname.lower()
+                bank_from_fname = detect_bank_from_text(fname_lower)
+                if bank_from_fname:
+                    data["period"]["bankName"] = bank_from_fname
 
             if data.get("dataQuality", {}).get("inferredIncome"):
                 yield sse({"type": "insight", "icon": "i", "text": "Income was estimated because this looks like an expense-only statement."})

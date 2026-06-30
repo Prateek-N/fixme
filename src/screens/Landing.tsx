@@ -7,11 +7,35 @@ import { openSampleReport } from '../sampleReport';
 export function Landing() {
   const setScreen = useAppStore(s => s.setScreen);
   const historyCount = useAppStore(s => s.statementHistory.length);
+  const hasSeenOnboarding = useAppStore(s => s.hasSeenOnboarding);
+  const dismissOnboarding = useAppStore(s => s.dismissOnboarding);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <Navbar />
       <div className="screen" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+
+        {!hasSeenOnboarding && (
+          <div style={{ background: 'rgba(47,47,228,0.07)', border: '1px solid rgba(47,47,228,0.2)', borderRadius: 12, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, fontFamily: 'var(--ui)' }}>👋 How it works — 3 steps</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[
+                  { n: '01', text: 'Export a PDF statement from your bank or card app' },
+                  { n: '02', text: 'Drop it here — analyzed on your device, nothing uploaded' },
+                  { n: '03', text: 'Read your money health score, spending leaks, and next move' },
+                ].map(({ n, text }) => (
+                  <div key={n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--paper)', borderRadius: 8, padding: '8px 10px', flex: '1 1 180px', minWidth: 160 }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--blue)', flexShrink: 0, marginTop: 1 }}>{n}</span>
+                    <span style={{ fontSize: 12, fontFamily: 'var(--ui)', lineHeight: 1.4 }}>{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button onClick={dismissOnboarding} aria-label="Dismiss" style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+          </div>
+        )}
+
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr', gap: 40, alignItems: 'center' }} className="landing-grid">
           <div>
             <div className="hand" style={{ fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--blue)', marginBottom: 14 }}>
@@ -39,7 +63,7 @@ export function Landing() {
             </div>
             <div className="row" style={{ gap: 8, marginTop: 22, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
               <span>No login</span><span>?</span>
-              <span>Nothing saved</span><span>?</span>
+              <span>Saved only on this device</span><span>?</span>
               <span>Local app only</span><span>?</span>
               <span>Confidence shown clearly</span>
             </div>

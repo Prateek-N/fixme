@@ -272,6 +272,9 @@ interface AppState {
     goals: UserGoals;
     updateGoals: (patch: Partial<UserGoals>) => void;
     updateCategoryCap: (key: keyof UserGoals['categoryCaps'], value: number) => void;
+
+    hasSeenOnboarding: boolean;
+    dismissOnboarding: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -412,6 +415,9 @@ export const useAppStore = create<AppState>()(
                     },
                 },
             })),
+
+            hasSeenOnboarding: false,
+            dismissOnboarding: () => set({ hasSeenOnboarding: true }),
         }),
         {
             name: 'fixmyfinance-store',
@@ -422,6 +428,7 @@ export const useAppStore = create<AppState>()(
                 goals: state.goals,
                 theme: state.theme,
                 personaTone: state.personaTone,
+                hasSeenOnboarding: state.hasSeenOnboarding,
             }),
             onRehydrateStorage: () => (state) => {
                 const systemDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
