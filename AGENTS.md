@@ -14,7 +14,7 @@ Requires two processes running simultaneously:
 ```bash
 python -m venv .venv          # first-time setup
 .venv\Scripts\activate        # Windows
-pip install fastapi uvicorn pdfplumber pandas python-multipart
+pip install -r requirements.txt
 uvicorn main:app --reload     # listens on http://127.0.0.1:8000
 ```
 
@@ -70,10 +70,11 @@ python test_extract.py   # requires "Test Pdf.pdf" in project root
 
 ## Non-Obvious Behaviors
 
-- **Zero-transaction fallback**: If the PDF yields 0 transactions, the backend automatically returns `get_mock_payload()` (demo data) instead of an error. The frontend won't know it's receiving mock data.
-- **Upload checkboxes are UI-only**: The "Detect recurring subscriptions" and "Flag late-payment fees" checkboxes on the Upload screen are not passed to the backend — the `handleAnalyze` function sends only the file.
-- **Transactions screen is vestigial in current flow**: On the `done` SSE event, `rawTransactions` is set to `[]`. Navigating to the `review` screen (Transactions) shows "No transactions to review". The Transactions screen is only useful if `setRawTransactions` is called before navigation.
-- **Credit card income assumption**: When `total_income < total_expense * 0.1` (typical for CC statements which don't include salary deposits), `compute_insights()` synthesizes income as `total_expense * 2.5` — the health score and savings rate are estimates in this case.
+- **Zero-transaction fallback**: If the PDF yields 0 transactions, the backend returns `build_empty_diagnosis_payload()` with `dataQuality.emptyState: true` and a score of 0. The frontend saves this to history only if `transactions.length > 0` and `emptyState` is false.
+- **Credit card income assumption**: When `total_income < total_expense * 0.1` (typical for CC statements which don't include salary deposits), `compute_insights()` synthesizes income as `total_expense * 2.5`. The Insights screen flags this with an amber "Income (est.)" label.
 - **`computeWhatIfSavings()`** is an exported selector in the store file, not a component hook. Import it alongside `useAppStore`.
 - **Persona copy**: `Insights.tsx` contains a hardcoded `PERSONA_COPY` fallback, but the canonical persona titles/subtitles come from `InsightPayload.persona.titles` and `.subs` returned by the backend.
-- **Production static files**: The backend mounts `public/` (not `dist/`) as static files at `/app`. After `npm run build`, copy the contents of `dist/` into `public/` for production serving.
+- **Production static files**: Run `npm run deploy` (not just `npm run build`) — it builds and copies `dist/` into `public/` atomically. The backend mounts `public/` at `/app`.
+- **What-if sliders reset**: Sliders reset to 0 whenever `setParsedData` is called, so stale values never carry over between statements.
+- **Cancel parsing**: The Processing screen has a Cancel button. It calls `cancelParsing()` (stored in Zustand), aborts the fetch, and returns to the Upload screen.
+- **Browser back button**: App.tsx pushes `history.pushState` on every screen change and listens to `popstate` to call `goBackScreen`. The URL hash reflects the current screen (e.g. `#insights`).

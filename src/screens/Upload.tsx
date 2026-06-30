@@ -7,7 +7,7 @@ import { Dropzone } from '../components/Dropzone';
 import { openSampleReport } from '../sampleReport';
 
 export function Upload() {
-  const { setScreen, setFile, file, setParsing, setProgress, clearLiveFindings, setParseError } = useAppStore();
+  const { setScreen, setFile, file, setParsing, setProgress, clearLiveFindings, setParseError, setCancelParsing } = useAppStore();
   const [pickedFile, setPickedFile] = useState<File | null>(file);
   const [validated, setValidated] = useState(false);
 
@@ -31,6 +31,7 @@ export function Upload() {
 
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), 90_000);
+    setCancelParsing(() => abortController.abort());
 
     fetch('/api/parse', { method: 'POST', body: formData, signal: abortController.signal })
       .then(async response => {
@@ -111,6 +112,7 @@ export function Upload() {
                   if (evt.data && evt.transactions?.length > 0 && !evt.data.dataQuality?.emptyState) {
                     useAppStore.getState().upsertStatementRecord(selectedFile.name, evt.transactions, evt.data);
                   }
+                  useAppStore.getState().setCancelParsing(null);
                   useAppStore.getState().setParsing(false);
                   useAppStore.getState().setProgress(100);
                   setTimeout(() => useAppStore.getState().setScreen('insights'), 1000);
@@ -124,6 +126,7 @@ export function Upload() {
                     icon: 'X',
                     text: evt.error || 'Parsing failed',
                   });
+                  useAppStore.getState().setCancelParsing(null);
                   useAppStore.getState().setParsing(false);
                   useAppStore.getState().setProgress(100);
                   setTimeout(() => useAppStore.getState().setScreen('insights'), 500);
@@ -148,11 +151,12 @@ export function Upload() {
         state.setParsedData(null);
         state.setRawTransactions([]);
         state.addLiveFinding({ id: crypto.randomUUID(), icon: 'X', text: message });
+        state.setCancelParsing(null);
         state.setParsing(false);
         state.setProgress(100);
         setTimeout(() => state.setScreen('insights'), 500);
       });
-  }, [pickedFile, setFile, setParsing, setProgress, clearLiveFindings, setScreen, setParseError]);
+  }, [pickedFile, setFile, setParsing, setProgress, clearLiveFindings, setScreen, setParseError, setCancelParsing]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>

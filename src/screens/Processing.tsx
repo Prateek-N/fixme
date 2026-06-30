@@ -4,7 +4,17 @@ import { Card } from '../components/Card';
 import { Gauge } from '../components/Gauge';
 
 export function Processing() {
-  const { progress, liveFindings, file } = useAppStore();
+  const { progress, liveFindings, file, cancelParsing, setCancelParsing, setParsing, setProgress, setParseError, setScreen, clearLiveFindings } = useAppStore();
+
+  const handleCancel = () => {
+    if (cancelParsing) cancelParsing();
+    setCancelParsing(null);
+    setParsing(false);
+    setProgress(0);
+    setParseError(null);
+    clearLiveFindings();
+    setScreen('upload');
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -49,10 +59,20 @@ export function Processing() {
               )}
             </div>
 
-            <div className="sub" style={{ fontSize: 11, textAlign: 'center', marginTop: 16 }}>
-              {progress < 100
-                ? `~${Math.max(1, Math.round((100 - progress) / 10))}s remaining`
-                : 'Complete! Loading your results...'}
+            <div className="row between" style={{ marginTop: 16, alignItems: 'center' }}>
+              <div className="sub" style={{ fontSize: 11 }}>
+                {progress < 100
+                  ? `~${Math.max(1, Math.round((100 - progress) / 10))}s remaining`
+                  : 'Complete! Loading your results...'}
+              </div>
+              {progress < 100 && (
+                <button
+                  onClick={handleCancel}
+                  style={{ background: 'none', border: '1px solid rgba(128,128,128,0.3)', borderRadius: 8, padding: '4px 12px', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--ui)' }}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           </div>
 

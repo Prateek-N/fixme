@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from 'react';
+import { Component, type ReactNode, useEffect } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { Landing } from './screens/Landing';
 import { Upload } from './screens/Upload';
@@ -41,6 +41,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 function App() {
   const currentScreen = useAppStore(s => s.currentScreen);
+  const goBackScreen = useAppStore(s => s.goBackScreen);
+
+  useEffect(() => {
+    history.pushState({ screen: currentScreen }, '', `#${currentScreen}`);
+  }, [currentScreen]);
+
+  useEffect(() => {
+    const onPop = () => goBackScreen('landing');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [goBackScreen]);
 
   return (
     <ErrorBoundary>

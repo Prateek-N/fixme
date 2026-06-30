@@ -242,6 +242,9 @@ interface AppState {
     isParsing: boolean;
     setParsing: (parsing: boolean) => void;
 
+    cancelParsing: (() => void) | null;
+    setCancelParsing: (fn: (() => void) | null) => void;
+
     liveFindings: { id: string, icon: string, text: string }[];
     addLiveFinding: (finding: { id: string, icon: string, text: string }) => void;
     clearLiveFindings: () => void;
@@ -316,6 +319,8 @@ export const useAppStore = create<AppState>()(
 
             isParsing: false,
             setParsing: (isParsing) => set({ isParsing }),
+            cancelParsing: null,
+            setCancelParsing: (fn) => set({ cancelParsing: fn }),
 
             liveFindings: [],
             addLiveFinding: (finding) => set((s) => ({ liveFindings: [...s.liveFindings, finding] })),
