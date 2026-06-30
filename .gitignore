@@ -25,6 +25,9 @@ fixmyfinance/
 .graphify_detect.json
 .graphify_python
 
+suggestions.json
+suggestions.json.tmp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

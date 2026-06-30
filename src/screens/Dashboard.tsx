@@ -18,6 +18,7 @@ export function Dashboard() {
     setScreen,
     goals,
     clearHistory,
+    removeStatementRecord,
   } = useAppStore();
 
   const latest = statementHistory[0] || null;
@@ -147,7 +148,7 @@ export function Dashboard() {
                         <div className="hand" style={{ fontSize: 16 }}>{record.snapshot.periodLabel}</div>
                         <div className="sub" style={{ fontSize: 11 }}>{record.sourceName} · {record.snapshot.score}/100 · {record.snapshot.savingsRate}% saved</div>
                       </div>
-                      <div className="row wrap" style={{ gap: 6 }}>
+                      <div className="row wrap" style={{ gap: 6, alignItems: 'center' }}>
                         <Button variant="ghost" size="sm" onClick={() => {
                           setCurrentStatement(record.id);
                           setScreen('insights');
@@ -160,6 +161,13 @@ export function Dashboard() {
                         }}>
                           Review
                         </Button>
+                        <button
+                          onClick={() => removeStatementRecord(record.id)}
+                          title="Delete this statement"
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: '2px 4px', lineHeight: 1 }}
+                        >
+                          ×
+                        </button>
                       </div>
                     </div>
                   </div>

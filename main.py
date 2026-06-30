@@ -1363,6 +1363,11 @@ if app is not None and StreamingResponse is not None and File is not None:
         if not email or not concern:
             return {"success": False, "error": "Email and Concern fields cannot be blank."}
 
+        if len(email) > 254:
+            return {"success": False, "error": "Email address is too long."}
+        if len(concern) > 2000:
+            return {"success": False, "error": "Concern text must be 2,000 characters or fewer."}
+
         # 2. Log Suggestion Locally
         suggestion_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -1425,56 +1430,6 @@ if app is not None and StreamingResponse is not None and File is not None:
 
         return {"success": True, "message": "Suggestion captured successfully."}
 
-
-
-# ─────────────────────────────────────────────
-# MOCK PAYLOAD (fallback / zero-transaction)
-# ─────────────────────────────────────────────
-
-def get_mock_payload():
-    return {
-        "data": {
-            "period": {"month": "Demo", "bankName": "Sample Bank", "txnCount": 34},
-            "score":  {"value": 62, "status": "needs_work", "reason": "Food is 42% of income — about 2× healthy range."},
-            "metrics": {"income": 76500, "expenses": 43760, "saved": 32740, "savingsRate": 43},
-            "breakdown": [
-                {"category": "Food",          "amount": 18400, "pct": 42},
-                {"category": "Shopping",      "amount":  7885, "pct": 18},
-                {"category": "Transport",     "amount":  3942, "pct":  9},
-                {"category": "Bills",         "amount":  6580, "pct": 15},
-                {"category": "Entertainment", "amount":  2625, "pct":  6},
-                {"category": "Other",         "amount":  4328, "pct": 10},
-            ],
-            "biggestLeak": {"category": "Food", "amount": 18400, "yourPct": 42, "healthyPct": 20, "potentialSave": 8200},
-            "insights": [
-                {"icon": "🍜", "text": "18 food orders this month"},
-                {"icon": "🔁", "text": "7 subscriptions, ₹2,840 monthly"},
-                {"icon": "⚠️", "text": "₹650 in late-payment fees"},
-            ],
-            "behaviorInsights": [
-                {
-                    "type": "behavior", "icon": "🔄",
-                    "title": "High-frequency: Zomato",
-                    "message": "You transacted with Zomato 18 times — ₹18,400 total (avg ₹1,022/order). Small frequent orders are the hardest spending to notice.",
-                    "impact": "₹18,400 total", "confidence": "high",
-                },
-            ],
-            "whatIf": [
-                {"category": "Food", "currentSpend": 18400, "cutPct": 30, "monthlySaving": 5520, "annualSaving": 66240,
-                 "message": "Cut Food by 30% → save ₹5,520/month → ₹66,240/year"},
-            ],
-            "subscriptions": [
-                {"name": "Netflix",       "amount": 649},
-                {"name": "Amazon Prime",  "amount": 1499},
-            ],
-            "emergency": {"months": 1.4, "target": 3, "monthlyContribNeeded": 5000},
-            "persona": {
-                "key": "foodie",
-                "titles": {"playful": "The Food Court VIP 🍜", "gentle": "You love good food", "blunt": "Food is eating your salary"},
-                "subs":   {"playful": "You placed 18 food orders. That's dedication.", "gentle": "42% of your spend went to food & delivery.", "blunt": "42% on food. The healthy benchmark is 20%."},
-            },
-        }
-    }
 
 
 if __name__ == "__main__":

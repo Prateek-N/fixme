@@ -263,6 +263,7 @@ interface AppState {
     upsertStatementRecord: (sourceName: string, transactions: Transaction[], diagnosis: InsightPayload, existingId?: string) => string;
     setCurrentStatement: (statementId: string | null) => void;
     syncCurrentStatement: (diagnosis: InsightPayload, transactions?: Transaction[]) => void;
+    removeStatementRecord: (id: string) => void;
     clearHistory: () => void;
 
     goals: UserGoals;
@@ -308,7 +309,7 @@ export const useAppStore = create<AppState>()(
             }),
 
             parsedData: null,
-            setParsedData: (parsedData) => set({ parsedData }),
+            setParsedData: (parsedData) => set({ parsedData, whatIfReductions: { food: 0, shopping: 0, subs: 0 } }),
 
             parseError: null,
             setParseError: (parseError) => set({ parseError }),
@@ -380,6 +381,10 @@ export const useAppStore = create<AppState>()(
                 get().upsertStatementRecord(record.sourceName, transactions || get().rawTransactions, diagnosis, currentId);
                 set({ parsedData: diagnosis, rawTransactions: transactions || get().rawTransactions });
             },
+            removeStatementRecord: (id) => set((s) => ({
+                statementHistory: s.statementHistory.filter((r) => r.id !== id),
+                currentStatementId: s.currentStatementId === id ? null : s.currentStatementId,
+            })),
             clearHistory: () => set({ statementHistory: [], currentStatementId: null }),
 
             goals: DEFAULT_GOALS,
