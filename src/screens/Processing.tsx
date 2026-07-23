@@ -1,10 +1,19 @@
 import { useAppStore } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { Card } from '../components/Card';
 import { Gauge } from '../components/Gauge';
 
 export function Processing() {
-  const { progress, liveFindings, file, cancelParsing, setCancelParsing, setParsing, setProgress, setParseError, setScreen, clearLiveFindings } = useAppStore();
+  const progress = useAppStore(s => s.progress);
+  const liveFindings = useAppStore(s => s.liveFindings);
+  const file = useAppStore(s => s.file);
+  const cancelParsing = useAppStore(s => s.cancelParsing);
+  const setCancelParsing = useAppStore(s => s.setCancelParsing);
+  const setParsing = useAppStore(s => s.setParsing);
+  const setProgress = useAppStore(s => s.setProgress);
+  const setParseError = useAppStore(s => s.setParseError);
+  const setScreen = useAppStore(s => s.setScreen);
+  const clearLiveFindings = useAppStore(s => s.clearLiveFindings);
 
   const handleCancel = () => {
     if (cancelParsing) cancelParsing();
@@ -17,10 +26,7 @@ export function Processing() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar step="Step 2 of 3" />
-
-      <div className="screen" style={{ flex: 1 }}>
+    <ScreenLayout step="Step 2 of 3" screenStyle={{ flex: 1 }}>
         <div className="processing-layout" style={{ display: 'grid', gap: 32, alignItems: 'start' }}>
           <div>
             <h1 className="h1" style={{ fontSize: 24, marginBottom: 4 }}>Building your health check...</h1>
@@ -100,13 +106,12 @@ export function Processing() {
             )}
           </div>
         </div>
-      </div>
 
       <style>{`
         @media (min-width: 1024px) {
           .processing-layout { grid-template-columns: 1fr 1fr !important; }
         }
       `}</style>
-    </div>
+    </ScreenLayout>
   );
 }

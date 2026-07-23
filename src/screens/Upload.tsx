@@ -1,13 +1,21 @@
 import { useState, useCallback } from 'react';
-import { useAppStore } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { useAppStore, type InsightPayload, type Transaction } from '../store/useAppStore';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Dropzone } from '../components/Dropzone';
 import { openSampleReport } from '../sampleReport';
+import { readSSE } from '../hooks/useSSEParse';
 
 export function Upload() {
-  const { setScreen, setFile, file, setParsing, setProgress, clearLiveFindings, setParseError, setCancelParsing } = useAppStore();
+  const setScreen = useAppStore(s => s.setScreen);
+  const setFile = useAppStore(s => s.setFile);
+  const file = useAppStore(s => s.file);
+  const setParsing = useAppStore(s => s.setParsing);
+  const setProgress = useAppStore(s => s.setProgress);
+  const clearLiveFindings = useAppStore(s => s.clearLiveFindings);
+  const setParseError = useAppStore(s => s.setParseError);
+  const setCancelParsing = useAppStore(s => s.setCancelParsing);
   const [pickedFile, setPickedFile] = useState<File | null>(file);
   const [validated, setValidated] = useState(false);
 
@@ -55,90 +63,71 @@ export function Upload() {
           throw new Error('The local analysis server returned an empty response.');
         }
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
         let terminalEventReceived = false;
 
-        function processChunk() {
-          reader.read().then(({ done, value }) => {
-            if (done) {
-              clearTimeout(timeoutId);
-              if (!terminalEventReceived) {
-                const message = 'Connection closed before the analysis finished.';
-                const state = useAppStore.getState();
-                state.setParseError(message);
-                state.setParsedData(null);
-                state.setRawTransactions([]);
-                state.addLiveFinding({
-                  id: crypto.randomUUID(),
-                  icon: 'X',
-                  text: message,
-                });
-                state.setParsing(false);
-                state.setProgress(100);
-                setTimeout(() => state.setScreen('insights'), 500);
-              }
-              return;
+        await readSSE(reader, (evt) => {
+          if (evt.type === 'progress') {
+            useAppStore.getState().setProgress((evt.pct as number) ?? (evt.value as number) ?? 0);
+            if (evt.message) {
+              useAppStore.getState().addLiveFinding({
+                id: crypto.randomUUID(),
+                icon: '...',
+                text: evt.message as string,
+              });
             }
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              try {
-                const evt = JSON.parse(line.slice(6));
-
-                if (evt.type === 'progress') {
-                  useAppStore.getState().setProgress(evt.pct ?? evt.value ?? 0);
-                  if (evt.message) {
-                    useAppStore.getState().addLiveFinding({
-                      id: crypto.randomUUID(),
-                      icon: '...',
-                      text: evt.message,
-                    });
-                  }
-                } else if (evt.type === 'insight') {
-                  useAppStore.getState().addLiveFinding({
-                    id: crypto.randomUUID(),
-                    icon: evt.icon || 'i',
-                    text: evt.text,
-                  });
-                } else if (evt.type === 'done') {
-                  terminalEventReceived = true;
-                  useAppStore.getState().setParseError(null);
-                  useAppStore.getState().setParsedData(evt.data || null);
-                  useAppStore.getState().setRawTransactions(evt.transactions || []);
-                  if (evt.data && evt.transactions?.length > 0 && !evt.data.dataQuality?.emptyState) {
-                    useAppStore.getState().upsertStatementRecord(selectedFile.name, evt.transactions, evt.data);
-                  }
-                  useAppStore.getState().setCancelParsing(null);
-                  useAppStore.getState().setParsing(false);
-                  useAppStore.getState().setProgress(100);
-                  setTimeout(() => useAppStore.getState().setScreen('insights'), 1000);
-                } else if (evt.type === 'error') {
-                  terminalEventReceived = true;
-                  useAppStore.getState().setParseError(evt.error || 'Parsing failed');
-                  useAppStore.getState().setParsedData(null);
-                  useAppStore.getState().setRawTransactions([]);
-                  useAppStore.getState().addLiveFinding({
-                    id: crypto.randomUUID(),
-                    icon: 'X',
-                    text: evt.error || 'Parsing failed',
-                  });
-                  useAppStore.getState().setCancelParsing(null);
-                  useAppStore.getState().setParsing(false);
-                  useAppStore.getState().setProgress(100);
-                  setTimeout(() => useAppStore.getState().setScreen('insights'), 500);
-                }
-              } catch {
-                // skip malformed event chunks
-              }
+          } else if (evt.type === 'insight') {
+            useAppStore.getState().addLiveFinding({
+              id: crypto.randomUUID(),
+              icon: (evt.icon as string) || 'i',
+              text: evt.text as string,
+            });
+          } else if (evt.type === 'done') {
+            terminalEventReceived = true;
+            const evtData = evt.data as InsightPayload | undefined;
+            const evtTransactions = evt.transactions as Transaction[] | undefined;
+            useAppStore.getState().setParseError(null);
+            useAppStore.getState().setParsedData(evtData || null);
+            useAppStore.getState().setRawTransactions(evtTransactions || []);
+            if (evtData && evtTransactions && evtTransactions.length > 0 && !evtData.dataQuality?.emptyState) {
+              useAppStore.getState().upsertStatementRecord(selectedFile.name, evtTransactions, evtData);
             }
-            processChunk();
+            useAppStore.getState().setCancelParsing(null);
+            useAppStore.getState().setParsing(false);
+            useAppStore.getState().setProgress(100);
+            setTimeout(() => useAppStore.getState().setScreen('insights'), 1000);
+          } else if (evt.type === 'error') {
+            terminalEventReceived = true;
+            useAppStore.getState().setParseError((evt.error as string) || 'Parsing failed');
+            useAppStore.getState().setParsedData(null);
+            useAppStore.getState().setRawTransactions([]);
+            useAppStore.getState().addLiveFinding({
+              id: crypto.randomUUID(),
+              icon: 'X',
+              text: (evt.error as string) || 'Parsing failed',
+            });
+            useAppStore.getState().setCancelParsing(null);
+            useAppStore.getState().setParsing(false);
+            useAppStore.getState().setProgress(100);
+            setTimeout(() => useAppStore.getState().setScreen('insights'), 500);
+          }
+        });
+
+        clearTimeout(timeoutId);
+        if (!terminalEventReceived) {
+          const message = 'Connection closed before the analysis finished.';
+          const state = useAppStore.getState();
+          state.setParseError(message);
+          state.setParsedData(null);
+          state.setRawTransactions([]);
+          state.addLiveFinding({
+            id: crypto.randomUUID(),
+            icon: 'X',
+            text: message,
           });
+          state.setParsing(false);
+          state.setProgress(100);
+          setTimeout(() => state.setScreen('insights'), 500);
         }
-        processChunk();
       })
       .catch((error: Error) => {
         clearTimeout(timeoutId);
@@ -159,10 +148,7 @@ export function Upload() {
   }, [pickedFile, setFile, setParsing, setProgress, clearLiveFindings, setScreen, setParseError, setCancelParsing]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar showBack step="Step 1 of 3" />
-
-      <div className="screen" style={{ flex: 1 }}>
+    <ScreenLayout showBack step="Step 1 of 3" screenStyle={{ flex: 1 }}>
         <div className="upload-layout" style={{ display: 'grid', gap: 32, alignItems: 'start' }}>
           <div>
             {!pickedFile ? (
@@ -268,13 +254,12 @@ export function Upload() {
             </Card>
           </div>
         </div>
-      </div>
 
       <style>{`
         @media (min-width: 1024px) {
           .upload-layout { grid-template-columns: 1.3fr 1fr !important; }
         }
       `}</style>
-    </div>
+    </ScreenLayout>
   );
 }

@@ -1,4 +1,5 @@
 import { Chip } from './Chip';
+import { formatCurrency } from '../lib/format';
 
 interface TxnRowProps {
   date: string;
@@ -13,7 +14,7 @@ interface TxnRowProps {
 }
 
 export function TxnRow({ date, merchant, category, amount, mode, isRecurring, isUncertain, isIncome, onCategoryClick }: TxnRowProps) {
-  const amtStr = `${amount >= 0 ? '+' : '-'}₹${Math.abs(amount).toLocaleString('en-IN')}`;
+  const amtStr = formatCurrency(amount, { symbol: '₹', showSign: true });
   const amtClass = amount >= 0 ? 'pos' : 'neg';
   const cardClass = `card txn-card${isUncertain ? ' uncertain' : ''}${isIncome ? '' : ''}`;
   const bgStyle = isIncome

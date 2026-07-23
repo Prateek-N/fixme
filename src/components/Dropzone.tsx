@@ -23,21 +23,34 @@ export function Dropzone({ onFile, disabled }: DropzoneProps) {
     if (file) onFile(file);
   }, [onFile]);
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      inputRef.current?.click();
+    }
+  }, [disabled]);
+
   return (
     <div
       className={`dropzone${dragover ? ' dragover' : ''}`}
       onDragOver={e => { e.preventDefault(); setDragover(true); }}
       onDragLeave={() => setDragover(false)}
       onDrop={handleDrop}
-      onClick={() => inputRef.current?.click()}
+      onClick={() => {
+        if (!disabled) {
+          inputRef.current?.click();
+        }
+      }}
+      onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label="Upload bank statement"
+      aria-label="Upload PDF bank statement"
     >
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.csv,.png,.jpg,.jpeg,.zip"
+        accept=".pdf,application/pdf"
         onChange={handleChange}
         hidden
       />
@@ -45,15 +58,13 @@ export function Dropzone({ onFile, disabled }: DropzoneProps) {
         <path d="M12 3v14M6 9l6-6 6 6M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
       </svg>
       <div className="hand" style={{ fontSize: 18, color: 'var(--blue)', fontWeight: 700 }}>
-        Drop file here
+        Drop PDF here
       </div>
       <div className="hand sub" style={{ fontSize: 13 }}>
         or <u>tap to browse</u>
       </div>
       <div className="row" style={{ gap: 6, marginTop: 8 }}>
         <Chip category="other" label="PDF" />
-        <Chip category="other" label="CSV" />
-        <Chip category="other" label="Image" />
       </div>
     </div>
   );

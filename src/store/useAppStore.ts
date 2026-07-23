@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { formatCurrency } from '../lib/format';
+import { getCategoryAmount, matchesCategory } from '../lib/categories';
 
 export type Screen = 'landing' | 'upload' | 'processing' | 'review' | 'insights' | 'dashboard' | 'goals';
 export type PersonaTone = 'playful' | 'gentle' | 'blunt';
@@ -81,12 +83,23 @@ export interface InsightPayload {
     assumptions: string[];
     metrics: { income: number, expenses: number, saved: number, savingsRate: number };
     breakdown: { category: string, amount: number, pct: number }[];
-    biggestLeak: { category: string, amount: number, yourPct: number, healthyPct: number, potentialSave: number } | null;
+    biggestLeak: BiggestLeak | null;
     insights: { icon: string, text: string, filter?: InsightFilter }[];
     behaviorInsights: BehaviorInsight[];
     subscriptions: { name: string, amount: number, unusedDays?: number }[];
     emergency: { months: number | null, target: number, monthlyContribNeeded: number | null, estimated?: boolean, unavailableReason?: string };
     persona: { key: string, titles: Record<string, string>, subs: Record<string, string> };
+}
+
+// Single shape for a category overspend candidate — previously declared three
+// times (InsightPayload.biggestLeak, SimulatedInsights.biggestLeak, and the
+// local LeakCandidate interface used to compute it) with no shared type.
+export interface BiggestLeak {
+    category: string;
+    amount: number;
+    yourPct: number;
+    healthyPct: number;
+    potentialSave: number;
 }
 
 export interface WhatIfReductions {
@@ -176,7 +189,7 @@ function buildSummary(data: InsightPayload): MonthlySummaryArtifact {
         problems.push(`${data.subscriptions.length} recurring charges are still active.`);
     }
     if (data.biggestLeak?.potentialSave) {
-        problems.push(`${data.biggestLeak.category} could free up about Rs. ${Math.round(data.biggestLeak.potentialSave).toLocaleString('en-IN')} per month.`);
+        problems.push(`${data.biggestLeak.category} could free up about ${formatCurrency(Math.round(data.biggestLeak.potentialSave))} per month.`);
     }
     if (data.assumptions.length > 0) {
         problems.push('This month includes assumptions, so treat the diagnosis carefully.');
@@ -441,8 +454,8 @@ export const useAppStore = create<AppState>()(
 /* Computed selectors */
 export function computeWhatIfSavings(data: InsightPayload | null, reductions: WhatIfReductions): { monthly: number; yearly: number } {
     if (!data) return { monthly: 0, yearly: 0 };
-    const foodAmount = data.breakdown.find(b => b.category.toLowerCase().includes('food'))?.amount || 0;
-    const shopAmount = data.breakdown.find(b => b.category.toLowerCase().includes('shop'))?.amount || 0;
+    const foodAmount = getCategoryAmount(data.breakdown, 'food');
+    const shopAmount = getCategoryAmount(data.breakdown, 'shop');
     const subsAmount = data.subscriptions.reduce((sum, s) => sum + s.amount, 0);
 
     const monthly = Math.round(
@@ -462,7 +475,7 @@ export interface SimulatedInsights {
     emergencyMonths: number | null;
     emergencyMonthlyContribNeeded: number | null;
     breakdown: { category: string, amount: number, pct: number }[];
-    biggestLeak: { category: string, amount: number, yourPct: number, healthyPct: number, potentialSave: number } | null;
+    biggestLeak: BiggestLeak | null;
 }
 
 export function computeSimulatedInsights(data: InsightPayload | null, reductions: WhatIfReductions): SimulatedInsights {
@@ -480,10 +493,8 @@ export function computeSimulatedInsights(data: InsightPayload | null, reductions
         };
     }
 
-    const foodBreakdown = data.breakdown.find(b => b.category.toLowerCase().includes('food'));
-    const shopBreakdown = data.breakdown.find(b => b.category.toLowerCase().includes('shop'));
-    const foodSpend = foodBreakdown?.amount || 0;
-    const shopSpend = shopBreakdown?.amount || 0;
+    const foodSpend = getCategoryAmount(data.breakdown, 'food');
+    const shopSpend = getCategoryAmount(data.breakdown, 'shop');
     const subsSpend = data.subscriptions.reduce((sum, s) => sum + s.amount, 0);
 
     const foodCut = Math.round(foodSpend * reductions.food / 100);
@@ -497,11 +508,11 @@ export function computeSimulatedInsights(data: InsightPayload | null, reductions
 
     const breakdown = data.breakdown.map(b => {
         let amt = b.amount;
-        if (b.category.toLowerCase().includes('food')) {
+        if (matchesCategory(b.category, 'food')) {
             amt = Math.max(0, b.amount - foodCut);
-        } else if (b.category.toLowerCase().includes('shop')) {
+        } else if (matchesCategory(b.category, 'shop')) {
             amt = Math.max(0, b.amount - shopCut);
-        } else if (b.category.toLowerCase().includes('ent')) {
+        } else if (matchesCategory(b.category, 'ent')) {
             amt = Math.max(0, b.amount - subsCut);
         }
         return {
@@ -512,14 +523,7 @@ export function computeSimulatedInsights(data: InsightPayload | null, reductions
     });
 
     const healthyPct: Record<string, number> = { Food: 20, Shopping: 15, Transport: 10, Entertainment: 5, Education: 5 };
-    interface LeakCandidate {
-        category: string;
-        amount: number;
-        yourPct: number;
-        healthyPct: number;
-        potentialSave: number;
-    }
-    const leakCandidates: LeakCandidate[] = [];
+    const leakCandidates: BiggestLeak[] = [];
     breakdown.forEach(b => {
         const healthy = healthyPct[b.category];
         if (healthy === undefined) return;

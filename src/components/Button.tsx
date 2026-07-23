@@ -6,12 +6,13 @@ interface ButtonProps {
   style?: React.CSSProperties;
   className?: string;
   type?: 'button' | 'submit';
+  disabled?: boolean;
 }
 
-export function Button({ children, variant = 'primary', size = 'default', onClick, style, className = '', type = 'button' }: ButtonProps) {
+export function Button({ children, variant = 'primary', size = 'default', onClick, style, className = '', type = 'button', disabled }: ButtonProps) {
   const classes = ['btn', variant === 'ghost' ? 'ghost' : '', size === 'wide' ? 'wide' : '', size === 'sm' ? 'sm' : '', className].filter(Boolean).join(' ');
   return (
-    <button className={classes} onClick={onClick} style={style} type={type}>
+    <button className={classes} onClick={onClick} style={style} type={type} disabled={disabled}>
       {children}
     </button>
   );

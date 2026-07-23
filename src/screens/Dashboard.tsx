@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { useAppStore, getPreviousStatement, type StatementRecord } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { formatCurrency } from '../lib/format';
 
 function deltaLabel(current: number, previous: number, suffix = ''): string {
   const delta = current - previous;
@@ -41,15 +42,13 @@ function ScoreSparkline({ history }: { history: StatementRecord[] }) {
 }
 
 export function Dashboard() {
-  const {
-    statementHistory,
-    currentStatementId,
-    setCurrentStatement,
-    setScreen,
-    goals,
-    clearHistory,
-    removeStatementRecord,
-  } = useAppStore();
+  const statementHistory = useAppStore(s => s.statementHistory);
+  const currentStatementId = useAppStore(s => s.currentStatementId);
+  const setCurrentStatement = useAppStore(s => s.setCurrentStatement);
+  const setScreen = useAppStore(s => s.setScreen);
+  const goals = useAppStore(s => s.goals);
+  const clearHistory = useAppStore(s => s.clearHistory);
+  const removeStatementRecord = useAppStore(s => s.removeStatementRecord);
 
   const latest = statementHistory[0] || null;
   const current = currentStatementId
@@ -61,9 +60,7 @@ export function Dashboard() {
   const savingsDelta = current && previous ? current.snapshot.savingsRate - previous.snapshot.savingsRate : null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar />
-      <div className="screen" style={{ paddingBottom: 40 }}>
+    <ScreenLayout screenStyle={{ paddingBottom: 40 }}>
         <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
             <div className="sub mono" style={{ fontSize: 10 }}>LOCAL HISTORY</div>
@@ -158,7 +155,7 @@ export function Dashboard() {
                     Shopping cap: <b>{goals.categoryCaps.shopping}%</b> of spending
                   </div>
                   <div className="sub" style={{ fontSize: 12 }}>
-                    Subscription cap: <b>Rs. {goals.categoryCaps.subscriptions.toLocaleString('en-IN')}</b>/month
+                    Subscription cap: <b>{formatCurrency(goals.categoryCaps.subscriptions)}</b>/month
                   </div>
                 </div>
               </Card>
@@ -231,7 +228,6 @@ export function Dashboard() {
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </ScreenLayout>
   );
 }

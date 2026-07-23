@@ -445,3 +445,4 @@ Each persona has 3 copy variants (playful / gentle / blunt) and an illustration 
 ---
 
 *File paired with:* `FixMyFinance Wireframes.html` (lo‑fi wireframes, all screens, mobile + desktop, tweakable).
+> Prototype note: this file reflects an earlier wireframe/spec direction. The live app uses a local FastAPI backend, supports PDF uploads today, and can retain report history in browser storage on this device.

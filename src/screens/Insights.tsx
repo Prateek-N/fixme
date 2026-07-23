@@ -1,11 +1,14 @@
+import { useMemo } from 'react';
 import { useAppStore, computeWhatIfSavings, computeSimulatedInsights, getPreviousStatement } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { Card } from '../components/Card';
 import { StatusPill } from '../components/StatusPill';
 import { MetricCard } from '../components/MetricCard';
 import { Donut } from '../components/Donut';
 import { Gauge } from '../components/Gauge';
 import { WhatIfSlider } from '../components/WhatIfSlider';
+import { formatINR, formatK } from '../lib/format';
+import { getCategoryPct } from '../lib/categories';
 
 const CATEGORY_COLORS: Record<string, string> = {
   food: '#E8A54B', shopping: '#8A5CF6', transport: '#3BA8C6',
@@ -19,17 +22,6 @@ function getCatColor(cat: string): string {
     if (key.includes(k)) return v;
   }
   return CATEGORY_COLORS.other;
-}
-
-function formatK(n: number): string {
-  if (Math.abs(n) >= 100000) return `${(n / 100000).toFixed(1)}L`;
-  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toLocaleString('en-IN');
-}
-
-function formatINR(n: number | null | undefined): string {
-  if (n == null) return 'Unavailable';
-  return `Rs. ${n.toLocaleString('en-IN')}`;
 }
 
 function getStatusLabel(s: string): { status: 'ok' | 'warn' | 'risk'; label: string } {
@@ -51,23 +43,45 @@ const PERSONA_COPY: Record<string, { t: string; s: string }> = {
 };
 
 export function Insights() {
-  const {
-    parsedData,
-    parseError,
-    whatIfReductions,
-    setWhatIfReduction,
-    personaTone,
-    currentStatementId,
-    statementHistory,
-    goals,
-    setScreen,
-  } = useAppStore();
+  const parsedData = useAppStore(s => s.parsedData);
+  const parseError = useAppStore(s => s.parseError);
+  const whatIfReductions = useAppStore(s => s.whatIfReductions);
+  const setWhatIfReduction = useAppStore(s => s.setWhatIfReduction);
+  const personaTone = useAppStore(s => s.personaTone);
+  const currentStatementId = useAppStore(s => s.currentStatementId);
+  const statementHistory = useAppStore(s => s.statementHistory);
+  const goals = useAppStore(s => s.goals);
+  const setScreen = useAppStore(s => s.setScreen);
+
+  // Hooks must run unconditionally on every render (rules-of-hooks) — both
+  // computeSimulatedInsights/computeWhatIfSavings already accept a null
+  // payload and return safe defaults, so these are computed before the
+  // `!parsedData` guard below rather than after it.
+  const isAnySliderActive = whatIfReductions.food > 0 || whatIfReductions.shopping > 0 || whatIfReductions.subs > 0;
+  const simulated = useMemo(
+    () => computeSimulatedInsights(parsedData, whatIfReductions),
+    [parsedData, whatIfReductions],
+  );
+  const savings = useMemo(
+    () => computeWhatIfSavings(parsedData, whatIfReductions),
+    [parsedData, whatIfReductions],
+  );
+  const activeBreakdown = useMemo(
+    () => (isAnySliderActive ? simulated.breakdown : (parsedData?.breakdown ?? [])),
+    [isAnySliderActive, simulated, parsedData],
+  );
+  const donutSegments = useMemo(
+    () => activeBreakdown.map(b => ({
+      category: b.category,
+      pct: b.pct,
+      color: getCatColor(b.category),
+    })),
+    [activeBreakdown],
+  );
 
   if (!parsedData) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Navbar />
-        <div className="screen" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <ScreenLayout screenStyle={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Card style={{ padding: 24, maxWidth: 560, width: '100%' }}>
             <div className="h3" style={{ marginBottom: 8 }}>Could not finish the health check</div>
             <div className="hand" style={{ fontSize: 18, lineHeight: 1.35, marginBottom: 10 }}>
@@ -78,8 +92,7 @@ export function Insights() {
             </div>
             <button className="btn" onClick={() => setScreen('upload')}>Back to upload</button>
           </Card>
-        </div>
-      </div>
+      </ScreenLayout>
     );
   }
 
@@ -100,21 +113,10 @@ export function Insights() {
     persona,
   } = parsedData;
 
-  const isAnySliderActive = whatIfReductions.food > 0 || whatIfReductions.shopping > 0 || whatIfReductions.subs > 0;
-  const simulated = computeSimulatedInsights(parsedData, whatIfReductions);
-
   const { status, label } = getStatusLabel(score.status);
   const confidenceBadge = getConfidenceBadge(score.confidence);
-  const savings = computeWhatIfSavings(parsedData, whatIfReductions);
   const personaCopy = PERSONA_COPY[personaTone] || PERSONA_COPY.gentle;
   const previous = getPreviousStatement(statementHistory, currentStatementId);
-
-  const activeBreakdown = isAnySliderActive ? simulated.breakdown : breakdown;
-  const donutSegments = activeBreakdown.map(b => ({
-    category: b.category,
-    pct: b.pct,
-    color: getCatColor(b.category),
-  }));
 
   const monthlySubscriptionTotal = subscriptions.reduce((sum, sub) => sum + sub.amount, 0);
   const simulatedSubsTotal = Math.max(0, monthlySubscriptionTotal - Math.round(monthlySubscriptionTotal * whatIfReductions.subs / 100));
@@ -125,9 +127,7 @@ export function Insights() {
   const warnings = parsingDiagnostics?.warnings || [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar />
-      <div className="screen" style={{ paddingBottom: 40 }}>
+    <ScreenLayout screenStyle={{ paddingBottom: 40 }}>
         <div className="row between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
             <div className="sub mono" style={{ fontSize: 10 }}>{period.month} | {period.bankName}</div>
@@ -345,10 +345,10 @@ export function Insights() {
                       Savings target: <b>{goals.savingsRateTarget}%</b> {(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate) >= goals.savingsRateTarget ? '(met)' : `(current ${(isAnySliderActive ? simulated.savingsRate : metrics.savingsRate)}%)`}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Food cap: <b>{goals.categoryCaps.food}%</b> of spend {((isAnySliderActive ? simulated.breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct : breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct) ?? 0) <= goals.categoryCaps.food ? '✅' : '❌'}
+                      Food cap: <b>{goals.categoryCaps.food}%</b> of spend {(getCategoryPct(isAnySliderActive ? simulated.breakdown : breakdown, 'food') ?? 0) <= goals.categoryCaps.food ? '✅' : '❌'}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
-                      Shopping cap: <b>{goals.categoryCaps.shopping}%</b> of spend {((isAnySliderActive ? simulated.breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct : breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct) ?? 0) <= goals.categoryCaps.shopping ? '✅' : '❌'}
+                      Shopping cap: <b>{goals.categoryCaps.shopping}%</b> of spend {(getCategoryPct(isAnySliderActive ? simulated.breakdown : breakdown, 'shop') ?? 0) <= goals.categoryCaps.shopping ? '✅' : '❌'}
                     </div>
                     <div className="sub" style={{ fontSize: 12 }}>
                       Subscription cap: <b>{formatINR(goals.categoryCaps.subscriptions)}</b>/month {(isAnySliderActive ? simulatedSubsTotal : monthlySubscriptionTotal) <= goals.categoryCaps.subscriptions ? '✅' : '❌'}
@@ -591,8 +591,8 @@ export function Insights() {
         )}
 
         {(goals.savingsRateTarget > 0 || goals.categoryCaps.food > 0 || goals.categoryCaps.shopping > 0 || goals.categoryCaps.subscriptions > 0) && (() => {
-          const foodPct = breakdown.find(b => b.category.toLowerCase().includes('food'))?.pct ?? null;
-          const shopPct = breakdown.find(b => b.category.toLowerCase().includes('shop'))?.pct ?? null;
+          const foodPct = getCategoryPct(breakdown, 'food');
+          const shopPct = getCategoryPct(breakdown, 'shop');
           const goalRows: { label: string; target: string; actual: string; met: boolean | null }[] = [];
 
           if (goals.savingsRateTarget > 0) {
@@ -657,7 +657,6 @@ export function Insights() {
         <div className="sub" style={{ fontSize: 10, textAlign: 'center', padding: 10 }}>
           Your statement is processed locally, and any saved report history stays on this device unless you clear it.
         </div>
-      </div>
-    </div>
+    </ScreenLayout>
   );
 }

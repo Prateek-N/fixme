@@ -1,33 +1,33 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { TxnRow } from '../components/TxnRow';
 import { Chip } from '../components/Chip';
 import { StickyCTA } from '../components/StickyCTA';
 import { Card } from '../components/Card';
+import { matchesCategory } from '../lib/categories';
 
 const ALL_CATEGORIES = ['All', 'Food', 'Shopping', 'Transport', 'Bills', 'Entertainment', 'Education', 'Other', 'Transfer', 'Income'];
 const EDITABLE_CATEGORIES = ['Food', 'Shopping', 'Transport', 'Bills', 'Entertainment', 'Education', 'Other', 'Transfer'];
 
 export function Transactions() {
-  const {
-    rawTransactions,
-    parsedData,
-    setRawTransactions,
-    setParsedData,
-    setCurrentStatement,
-    currentStatementId,
-    syncCurrentStatement,
-    setScreen,
-  } = useAppStore();
+  const rawTransactions = useAppStore(s => s.rawTransactions);
+  const parsedData = useAppStore(s => s.parsedData);
+  const setRawTransactions = useAppStore(s => s.setRawTransactions);
+  const setParsedData = useAppStore(s => s.setParsedData);
+  const setCurrentStatement = useAppStore(s => s.setCurrentStatement);
+  const currentStatementId = useAppStore(s => s.currentStatementId);
+  const syncCurrentStatement = useAppStore(s => s.syncCurrentStatement);
+  const setScreen = useAppStore(s => s.setScreen);
   const [activeFilter, setActiveFilter] = useState('All');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     const visible = rawTransactions.filter(t => !t.ignored);
     if (activeFilter === 'All') return visible;
-    return visible.filter(t => t.category.toLowerCase().includes(activeFilter.toLowerCase()));
+    return visible.filter(t => matchesCategory(t.category, activeFilter.toLowerCase()));
   }, [rawTransactions, activeFilter]);
 
   const grouped = useMemo(() => {
@@ -49,16 +49,9 @@ export function Transactions() {
     setRawTransactions(next);
   };
 
-  const handleCategoryChange = (index: number) => {
-    const current = rawTransactions[index];
-    const nextCategory = window.prompt(
-      `Set a category for "${current.desc}"\nOptions: ${EDITABLE_CATEGORIES.join(', ')}`,
-      current.category,
-    );
-    if (!nextCategory) return;
-    const normalized = EDITABLE_CATEGORIES.find(item => item.toLowerCase() === nextCategory.toLowerCase());
-    if (!normalized) return;
-    updateTransaction(index, { category: normalized, confidence: 100 });
+  const handleCategoryChange = (index: number, nextCategory: string) => {
+    updateTransaction(index, { category: nextCategory, confidence: 100 });
+    setEditingIndex(null);
   };
 
   const handleRecompute = async () => {
@@ -94,10 +87,19 @@ export function Transactions() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar showBack step="Review and correct" />
-
-      <div className="screen" style={{ paddingBottom: 90 }}>
+    <ScreenLayout
+      showBack
+      step="Review and correct"
+      screenStyle={{ paddingBottom: 90 }}
+      afterScreen={
+        <StickyCTA
+          sublabel="after corrections"
+          label={isSaving ? 'Refreshing diagnosis...' : `${categorized}/${Math.max(rawTransactions.filter(t => !t.ignored).length, 0)} categorized`}
+          buttonText={isSaving ? 'Saving...' : 'Refresh health check'}
+          onClick={handleRecompute}
+        />
+      }
+    >
         <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 10 }}>
           <div>
             <h1 className="h1" style={{ fontSize: 22, marginBottom: 4 }}>{filtered.length} active transactions</h1>
@@ -168,8 +170,22 @@ export function Transactions() {
                     isRecurring={t.isRecurring}
                     isUncertain={(t.confidence ?? 100) < 70}
                     isIncome={t.type === 'credit'}
-                    onCategoryClick={t.type === 'credit' ? undefined : () => handleCategoryChange(index)}
+                    onCategoryClick={t.type === 'credit' ? undefined : () => setEditingIndex(index)}
                   />
+                  {editingIndex === index && (
+                    <select
+                      autoFocus
+                      value={t.category}
+                      onChange={(e) => handleCategoryChange(index, e.target.value)}
+                      onBlur={() => setEditingIndex(null)}
+                      aria-label={`Change category for ${t.desc}`}
+                      style={{ marginBottom: 10 }}
+                    >
+                      {EDITABLE_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  )}
                   {t.type !== 'credit' && (
                     <div className="row wrap" style={{ gap: 6, margin: '0 0 10px 0' }}>
                       <button className="btn sm ghost" onClick={() => updateTransaction(index, { ignored: !t.ignored })}>
@@ -194,14 +210,6 @@ export function Transactions() {
             <div className="hand" style={{ fontSize: 16, color: 'var(--muted)' }}>No transactions to review</div>
           </Card>
         )}
-      </div>
-
-      <StickyCTA
-        sublabel="after corrections"
-        label={isSaving ? 'Refreshing diagnosis...' : `${categorized}/${Math.max(rawTransactions.filter(t => !t.ignored).length, 0)} categorized`}
-        buttonText={isSaving ? 'Saving...' : 'Refresh health check'}
-        onClick={handleRecompute}
-      />
-    </div>
+    </ScreenLayout>
   );
 }

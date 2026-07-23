@@ -1,15 +1,16 @@
 import { useAppStore } from '../store/useAppStore';
-import { Navbar } from '../components/Navbar';
+import { ScreenLayout } from '../components/ScreenLayout';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 
 export function Goals() {
-  const { goals, updateGoals, updateCategoryCap, setScreen } = useAppStore();
+  const goals = useAppStore(s => s.goals);
+  const updateGoals = useAppStore(s => s.updateGoals);
+  const updateCategoryCap = useAppStore(s => s.updateCategoryCap);
+  const setScreen = useAppStore(s => s.setScreen);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Navbar showBack step="Goals" />
-      <div className="screen" style={{ paddingBottom: 40 }}>
+    <ScreenLayout showBack step="Goals" screenStyle={{ paddingBottom: 40 }}>
         <div className="row between" style={{ marginBottom: 12 }}>
           <div>
             <div className="sub mono" style={{ fontSize: 10 }}>LOCAL GOALS</div>
@@ -81,7 +82,6 @@ export function Goals() {
             </div>
           </Card>
         </div>
-      </div>
-    </div>
+    </ScreenLayout>
   );
 }

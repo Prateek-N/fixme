@@ -1,0 +1,21 @@
+.venv
+__pycache__/
+*.pyc
+node_modules
+public
+dist
+.pytest-tmp/
+.tmp/
+outputs/
+.agent/
+.codex/
+graphify/
+graphify-out/
+fixmyfinance/
+suggestions.json
+suggestions.json.tmp
+suggestions.json.lock
+test_*.py
+Test Pdf.pdf
+main_ui/
+FixMyFinance_PRD.docx

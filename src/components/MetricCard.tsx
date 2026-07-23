@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 interface MetricCardProps {
   label: string;
   value: string;
@@ -5,7 +7,7 @@ interface MetricCardProps {
   color?: string;
 }
 
-export function MetricCard({ label, value, exact, color }: MetricCardProps) {
+export const MetricCard = memo(function MetricCard({ label, value, exact, color }: MetricCardProps) {
   return (
     <div className="mini-card">
       <div className="kicker">{label}</div>
@@ -13,4 +15,4 @@ export function MetricCard({ label, value, exact, color }: MetricCardProps) {
       {exact && <div className="sub" style={{ fontSize: 10 }}>{exact}</div>}
     </div>
   );
-}
+});
